@@ -29,8 +29,7 @@
     "custom_nodes": "ComfyUI/custom_nodes",
     "bat_files_directory": ".",
     "comfyui_path": "ComfyUI",
-    "python_path": "python_embeded/python.exe",
-    
+    "python_path": "python_embeded/python.exe"
   },
   "advanced": {
     "check_environment_changes": true,
