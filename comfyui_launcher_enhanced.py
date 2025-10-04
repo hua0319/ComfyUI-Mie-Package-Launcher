@@ -1,16 +1,9 @@
-"""
-ComfyUI 启动器 - SectionCard 版 + 分割线 + 蓝色更新按钮
-本版更新:
-- SectionCard 重写为图标与文字分离的精确基线对齐版本
-- 图标与标题用 grid 对齐，并支持不同 emoji 的单独偏移(ICON_ADJUST_MAP)
-- 保留之前字体层级: 卡片标题 18 号粗体；内部小节“模式/选项/批量更新” 14 号粗体
-"""
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 from tkinter import font as tkfont
 import subprocess, threading, json, os, sys, webbrowser, tempfile, atexit
 from pathlib import Path
+from PIL import Image, ImageTk
 from version_manager import VersionManager
 
 # ================== 单实例锁 ==================
@@ -22,7 +15,6 @@ try:
     import msvcrt
 except ImportError:
     msvcrt = None
-
 
 class SingletonLock:
     def __init__(self, lock_file_name):
@@ -73,7 +65,6 @@ class SingletonLock:
             except Exception:
                 pass
             self.lock_file = None
-
 
 # ================== 大启动按钮 ==================
 class BigLaunchButton(tk.Frame):
@@ -140,14 +131,8 @@ class BigLaunchButton(tk.Frame):
     def set_text(self, txt):
         self.label.config(text=txt)
 
-
 # ================== Section 卡片（图标与标题基线对齐版本） ==================
 class SectionCard(tk.Frame):
-    """
-    标题与图标基线对齐:
-    - 图标与文本用 grid 分离
-    - 根据 ICON_ADJUST_MAP 对不同 emoji 做细微像素级垂直偏移
-    """
     def __init__(self, parent,
                  title: str,
                  icon: str = None,
@@ -167,7 +152,6 @@ class SectionCard(tk.Frame):
                          bd=0)
         self.pad_l, self.pad_t, self.pad_r, self.pad_b = padding
 
-        # 针对不同 emoji 的单独偏移（正数向下，负数向上）
         ICON_ADJUST_MAP = {
             "⚙": 2,
             "🔄": 1,
@@ -176,7 +160,6 @@ class SectionCard(tk.Frame):
         }
         icon_y_offset = ICON_ADJUST_MAP.get(icon, default_icon_offset) if icon else 0
 
-        # Header
         header = tk.Frame(self, bg=bg)
         header.pack(fill=tk.X, padx=(self.pad_l, self.pad_r), pady=(self.pad_t, 0))
 
@@ -203,7 +186,6 @@ class SectionCard(tk.Frame):
             tk.Label(header, text=title, bg=bg, fg=title_fg,
                      font=title_font).pack(anchor='w')
 
-        # Body
         self.body = tk.Frame(self, bg=bg)
         self.body.pack(fill=tk.BOTH, expand=True,
                        padx=(self.pad_l, self.pad_r),
@@ -211,7 +193,6 @@ class SectionCard(tk.Frame):
 
     def get_body(self):
         return self.body
-
 
 # ================== 主启动器 ==================
 class ComfyUILauncherEnhanced:
@@ -223,7 +204,6 @@ class ComfyUILauncherEnhanced:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    # 可调常量
     LAUNCH_BUTTON_CENTER = True
     CARD_BORDER_COLOR = "#E3E7EB"
     CARD_BG = "#FFFFFF"
@@ -236,9 +216,8 @@ class ComfyUILauncherEnhanced:
     SIDEBAR_DIVIDER_SHADOW = True
     SHADOW_WIDTH = 6
 
-    # 字体层级
-    SECTION_TITLE_FONT = ("Microsoft YaHei", 18, "bold")       # 卡片大标题
-    INTERNAL_HEAD_LABEL_FONT = ("Microsoft YaHei", 14, "bold") # 模式 / 选项 / 批量更新
+    SECTION_TITLE_FONT = ("Microsoft YaHei", 18, "bold")
+    INTERNAL_HEAD_LABEL_FONT = ("Microsoft YaHei", 14, "bold")
     BODY_FONT = ("Microsoft YaHei", 10)
 
     def __init__(self):
@@ -258,7 +237,6 @@ class ComfyUILauncherEnhanced:
         self.setup_variables()
         self.load_settings()
 
-        # 初始化版本管理器（已移除备份相关功能，不做任何备份集成）
         self.version_manager = VersionManager(
             self.root,
             self.config["paths"]["comfyui_path"],
@@ -266,7 +244,6 @@ class ComfyUILauncherEnhanced:
         )
 
         self.build_layout()
-        self.switch_tab('launch')
         threading.Thread(target=self.monitor_process, daemon=True).start()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -276,6 +253,8 @@ class ComfyUILauncherEnhanced:
         self.root.geometry("1250x760")
         self.root.minsize(1100, 660)
         self.style = ttk.Style()
+        self.style.theme_use('clam')
+        self.style.layout('Hidden.TNotebook.Tab', [])
         try:
             self.style.theme_use('clam')
         except:
@@ -337,11 +316,11 @@ class ComfyUILauncherEnhanced:
     def setup_variables(self):
         self.compute_mode = tk.StringVar(value="gpu")
         self.use_fast_mode = tk.BooleanVar()
-        self.enable_cors = tk.BooleanVar()
-        self.listen_all = tk.BooleanVar()
+        self.enable_cors = tk.BooleanVar(value=True)
+        self.listen_all = tk.BooleanVar(value=True)
         self.custom_port = tk.StringVar(value="8188")
         self.hf_mirror_options = {"不使用镜像": "", "hf-mirror": "https://hf-mirror.com"}
-        self.selected_hf_mirror = tk.StringVar(value="不使用镜像")
+        self.selected_hf_mirror = tk.StringVar(value="hf-mirror")
         self.comfyui_version = tk.StringVar(value="获取中…")
         self.frontend_version = tk.StringVar(value="获取中…")
         self.template_version = tk.StringVar(value="获取中…")
@@ -350,6 +329,13 @@ class ComfyUILauncherEnhanced:
         self.update_core_var = tk.BooleanVar(value=True)
         self.update_frontend_var = tk.BooleanVar(value=True)
         self.update_template_var = tk.BooleanVar(value=True)
+
+        self.compute_mode.trace_add("write", lambda *a: self.save_config())
+        self.use_fast_mode.trace_add("write", lambda *a: self.save_config())
+        self.enable_cors.trace_add("write", lambda *a: self.save_config())
+        self.listen_all.trace_add("write", lambda *a: self.save_config())
+        self.custom_port.trace_add("write", lambda *a: self.save_config())
+        self.selected_hf_mirror.trace_add("write", lambda *a: self.save_config())
 
     def load_config(self):
         default = {
@@ -368,6 +354,15 @@ class ComfyUILauncherEnhanced:
             self.save_config()
 
     def save_config(self):
+        self.config["launch_options"] = {
+            "default_compute_mode": self.compute_mode.get(),
+            "default_port": self.custom_port.get(),
+            "enable_fast_mode": self.use_fast_mode.get(),
+            "enable_cors": self.enable_cors.get(),
+            "listen_all": self.listen_all.get(),
+        }
+        # 记录镜像选项
+        self.config["paths"]["hf_mirror"] = self.selected_hf_mirror.get()
         json.dump(self.config, open(self.config_file, 'w', encoding='utf-8'), indent=2, ensure_ascii=False)
 
     def load_settings(self):
@@ -375,8 +370,8 @@ class ComfyUILauncherEnhanced:
         self.compute_mode.set(opt.get("default_compute_mode", "gpu"))
         self.custom_port.set(opt.get("default_port", "8188"))
         self.use_fast_mode.set(opt.get("enable_fast_mode", False))
-        self.enable_cors.set(opt.get("enable_cors", False))
-        self.listen_all.set(opt.get("listen_all", False))
+        self.enable_cors.set(opt.get("enable_cors", True))
+        self.listen_all.set(opt.get("listen_all", True))
 
     # ---------- 布局 ----------
     def build_layout(self):
@@ -387,13 +382,30 @@ class ComfyUILauncherEnhanced:
         self.sidebar = tk.Frame(self.main_container, width=176, bg=c["SIDEBAR_BG"])
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
         self.sidebar.pack_propagate(False)
-        tk.Label(self.sidebar, text="ComfyUI\n启动器", bg=c["SIDEBAR_BG"], fg="#FFFFFF",
-                 font=("Microsoft YaHei", 17, 'bold'),
-                 justify='left', anchor='w').pack(anchor='w', padx=18, pady=(18, 16))
+
+        sidebar_header = tk.Frame(self.sidebar, bg=c["SIDEBAR_BG"])
+        sidebar_header.pack(fill=tk.X, pady=(18, 12))
+
+        tk.Label(
+            sidebar_header, 
+            text="ComfyUI\n启动器", 
+            bg=c["SIDEBAR_BG"], 
+            fg="#FFFFFF",
+            font=("Microsoft YaHei", 18, 'bold'),
+            anchor='center', justify='center'
+        ).pack(fill=tk.X)
+        tk.Label(
+            sidebar_header, 
+            text="by 黎黎原上咩",
+            bg=c["SIDEBAR_BG"], 
+            fg=c.get("TEXT_MUTED", "#A0A4AA"), 
+            font=("Microsoft YaHei", 11),
+            anchor='center', justify='center'
+        ).pack(fill=tk.X, pady=(4, 0))
         self.nav_buttons = {}
         for key, label in [("launch", "🚀 启动与更新"), ("version", "🧬 内核版本管理"), ("about", "👤 关于我")]:
             btn = ttk.Button(self.sidebar, text=label, style='Nav.TButton',
-                             command=lambda k=key: self.switch_tab(k))
+                             command=lambda k=key: self.select_tab(k))
             btn.pack(fill=tk.X, padx=8, pady=3)
             self.nav_buttons[key] = btn
 
@@ -422,40 +434,34 @@ class ComfyUILauncherEnhanced:
         self.content_area = tk.Frame(self.main_container, bg=c["BG"])
         self.content_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        if self.MAX_CONTENT_WIDTH > 0:
-            self.center_wrapper = tk.Frame(self.content_area, bg=c["BG"])
-            self.center_wrapper.pack(fill=tk.BOTH, expand=True)
-            self.center_wrapper.bind("<Configure>", self._limit_width)
-            container = self.center_wrapper
-        else:
-            container = self.content_area
-
+        # ==== 用 ttk.Notebook 实现 tab ====
+        self.notebook = ttk.Notebook(self.content_area, style='Hidden.TNotebook')
+        self.notebook.pack(fill=tk.BOTH, expand=True)
         self.tab_frames = {
-            "launch": tk.Frame(container, bg=c["BG"]),
-            "version": tk.Frame(container, bg=c["BG"]),
-            "about": tk.Frame(container, bg=c["BG"])
+            "launch": tk.Frame(self.notebook, bg=c["BG"]),
+            "version": tk.Frame(self.notebook, bg=c["BG"]),
+            "about": tk.Frame(self.notebook, bg=c["BG"])
         }
+        self.notebook.add(self.tab_frames["launch"], text="启动与更新")
+        self.notebook.add(self.tab_frames["version"], text="内核版本管理")
+        self.notebook.add(self.tab_frames["about"], text="关于我")
 
         self.build_launch_tab(self.tab_frames["launch"])
         self.build_version_tab(self.tab_frames["version"])
         self.build_about_tab(self.tab_frames["about"])
 
-    def _limit_width(self, event):
-        max_w = self.MAX_CONTENT_WIDTH
-        if max_w <= 0:
-            return
-        cur = event.width
-        pad = 0 if cur <= max_w else int((cur - max_w) / 2)
-        for f in self.tab_frames.values():
-            f.pack_configure(padx=pad)
+        self.notebook.select(self.notebook.tabs()[0])
+        self.current_tab_name = "launch"
 
-    def switch_tab(self, name):
-        for k, f in self.tab_frames.items():
-            f.pack_forget()
-            st = 'NavSelected.TButton' if k == name else 'Nav.TButton'
-            if k in self.nav_buttons:
-                self.nav_buttons[k].configure(style=st)
-        self.tab_frames[name].pack(fill=tk.BOTH, expand=True)
+    def select_tab(self, name):
+        tab_order = ["launch", "version", "about"]
+        idx = tab_order.index(name)
+        tabs = self.notebook.tabs()
+        if idx < len(tabs):
+            self.notebook.select(tabs[idx])
+        for k, btn in self.nav_buttons.items():
+            btn.configure(style='NavSelected.TButton' if k == name else 'Nav.TButton')
+        self.current_tab_name = name
         if name == 'version' and not getattr(self, '_vm_embedded', False):
             self.version_manager.attach_to_container(self.version_container)
             self._vm_embedded = True
@@ -463,13 +469,10 @@ class ComfyUILauncherEnhanced:
     # ---------- Launch Tab ----------
     def build_launch_tab(self, parent):
         c = self.COLORS
+
         header = tk.Frame(parent, bg=c["BG"])
         header.pack(fill=tk.X, pady=(18, 10))
-        tk.Label(header, text="ComfyUI启动器 黎黎原上咩",
-                 bg=c["BG"], fg=c["TEXT"],
-                 font=("Microsoft YaHei", 20, 'bold')).pack(anchor='w')
-        tk.Label(header, text=f"路径: {Path(self.config['paths']['comfyui_path']).resolve()}",
-                 bg=c["BG"], fg=c["TEXT_MUTED"], font=("Microsoft YaHei", 10)).pack(anchor='w', pady=(4, 0))
+        tk.Frame(header, height=1, bg=c["BORDER"]).pack(fill=tk.X, padx=2, pady=(8,8))
 
         launch_card = SectionCard(parent, "启动控制", icon="⚙",
                                   border_color=self.CARD_BORDER_COLOR,
@@ -516,7 +519,7 @@ class ComfyUILauncherEnhanced:
                                  title_font=self.SECTION_TITLE_FONT,
                                  padding=(20, 14, 20, 18))
         quick_card.pack(fill=tk.X, pady=(0, 24))
-        self._build_quick_links(quick_card.get_body())
+        self._build_quick_links(quick_card.get_body(), path=self.config["paths"]["comfyui_path"])
 
         self.get_version_info()
 
@@ -547,7 +550,6 @@ class ComfyUILauncherEnhanced:
         form.pack(fill=tk.X)
         form.columnconfigure(1, weight=1)
 
-        # 行0 模式
         tk.Label(form, text="模式:", bg=self.CARD_BG, fg=c["TEXT"],
                  font=HEAD_LABEL_FONT) \
             .grid(row=0, column=0, sticky="nw", padx=(0, 14), pady=(0, ROW_GAP))
@@ -561,7 +563,6 @@ class ComfyUILauncherEnhanced:
                         variable=self.compute_mode, value="gpu") \
             .pack(side=tk.LEFT)
 
-        # 行1 选项
         tk.Label(form, text="选项:", bg=self.CARD_BG, fg=c["TEXT"],
                  font=HEAD_LABEL_FONT) \
             .grid(row=1, column=0, sticky="nw", padx=(0, 14), pady=(0, ROW_GAP))
@@ -578,7 +579,6 @@ class ComfyUILauncherEnhanced:
                         variable=self.listen_all) \
             .pack(side=tk.LEFT)
 
-        # 行2 端口 + 镜像
         spacer = tk.Frame(form, bg=self.CARD_BG, width=1, height=1)
         spacer.grid(row=2, column=0)
         port_row = tk.Frame(form, bg=self.CARD_BG)
@@ -601,7 +601,6 @@ class ComfyUILauncherEnhanced:
         self.hf_mirror_combobox.pack(side=tk.LEFT)
         self.hf_mirror_combobox.bind("<<ComboboxSelected>>", self.on_hf_mirror_selected)
 
-        # 行3 按钮（下沉）
         btn_row = tk.Frame(form, bg=self.CARD_BG)
         btn_row.grid(row=3, column=1, sticky="w", pady=(BUTTON_TOP_GAP, 0))
         ttk.Button(btn_row, text="恢复默认设置",
@@ -644,8 +643,15 @@ class ComfyUILauncherEnhanced:
         self.template_update_btn = self.batch_update_btn
         self._refresh_batch_labels()
 
-    def _build_quick_links(self, container):
-        row = tk.Frame(container, bg=self.CARD_BG)
+    def _build_quick_links(self, container, path=None):
+        c = self.COLORS
+        if path:
+            tk.Label(container,
+                    text=f"路径: {Path(path).resolve()}",
+                    bg=c["BG"], fg=c["TEXT_MUTED"],
+                    font=self.BODY_FONT).pack(anchor='w', padx=(4, 0), pady=(0, 8))
+
+        row = tk.Frame(container, bg=c["BG"])
         row.pack(fill=tk.X)
         for txt, cmd in [
             ("根目录", self.open_root_dir),
@@ -661,13 +667,52 @@ class ComfyUILauncherEnhanced:
         self.version_container = tk.Frame(parent, bg=self.COLORS["BG"])
         self.version_container.pack(fill=tk.BOTH, expand=True, padx=40, pady=30)
 
+
     def build_about_tab(self, parent):
         frame = tk.Frame(parent, bg=self.COLORS["BG"])
         frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=30)
-        tk.Label(frame, text="关于我", bg=self.COLORS["BG"], fg=self.COLORS["TEXT"],
-                 font=("Microsoft YaHei", 22, 'bold')).pack(anchor='w', pady=(0, 16))
-        tk.Label(frame, text="这里放个人主页 / 介绍 / 联系方式。", bg=self.COLORS["BG"],
-                 fg=self.COLORS["TEXT_MUTED"]).pack(anchor='w')
+
+        # 加载并居中图片
+        img_path = os.path.join(os.path.dirname(__file__), "about_me.png")
+        try:
+            img = Image.open(img_path)
+            img = img.resize((96, 96))
+            photo = ImageTk.PhotoImage(img)
+            img_label = tk.Label(frame, image=photo, bg=self.COLORS["BG"])
+            img_label.image = photo
+            img_label.pack(pady=(0, 16))
+        except Exception as e:
+            tk.Label(frame, text=f"[头像加载失败]: {e}", bg=self.COLORS["BG"], fg="red").pack(pady=(0, 16))
+
+        # 昵称
+        tk.Label(
+            frame, text="黎黎原上咩",
+            bg=self.COLORS["BG"], fg=self.COLORS["TEXT"],
+            font=("Microsoft YaHei", 22, 'bold'),
+            anchor='center', justify='center'
+        ).pack(fill=tk.X, pady=(0, 4))
+
+        # 个性签名
+        tk.Label(
+            frame, text="未觉池塘春草梦，阶前梧叶已秋声",
+            bg=self.COLORS["BG"], fg=self.COLORS.get("TEXT_MUTED", "#A0A4AA"),
+            font=("Microsoft YaHei", 13, 'italic'),
+            anchor='center', justify='center'
+        ).pack(fill=tk.X, pady=(0, 12))
+
+        # B站链接
+        def open_bilibili(event=None):
+            import webbrowser
+            webbrowser.open("https://space.bilibili.com/449342345")
+
+        link = tk.Label(
+            frame, text="https://space.bilibili.com/449342345",
+            bg=self.COLORS["BG"], fg="#2F6EF6",
+            font=("Microsoft YaHei", 13, 'underline'),
+            cursor="hand2", anchor='center', justify='center'
+        )
+        link.pack(fill=tk.X)
+        link.bind("<Button-1>", open_bilibili)
 
     # ---------- 批量状态 ----------
     def _refresh_batch_labels(self):
@@ -783,8 +828,15 @@ class ComfyUILauncherEnhanced:
         else:
             messagebox.showwarning("警告", f"目录不存在: {path}")
 
+    # ---------- 文件 ----------
+    def _open_file(self, path: Path):
+        if path.exists():
+            os.startfile(str(path))
+        else:
+            messagebox.showwarning("警告", f"文件不存在: {path}")
+
     def open_root_dir(self): self._open_dir(Path(self.config["paths"]["comfyui_path"]).resolve())
-    def open_logs_dir(self): self._open_dir(Path(self.config["paths"]["comfyui_path"]).resolve() / "user")
+    def open_logs_dir(self): self._open_file(Path(self.config["paths"]["comfyui_path"]).resolve() / "user" / "comfyui.log")
     def open_input_dir(self): self._open_dir(Path(self.config["paths"]["comfyui_path"]).resolve() / "input")
     def open_output_dir(self): self._open_dir(Path(self.config["paths"]["comfyui_path"]).resolve() / "output")
     def open_plugins_dir(self): self._open_dir(Path(self.config["paths"]["comfyui_path"]).resolve() / "custom_nodes")
@@ -797,9 +849,9 @@ class ComfyUILauncherEnhanced:
             self.compute_mode.set("gpu")
             self.custom_port.set("8188")
             self.use_fast_mode.set(False)
-            self.enable_cors.set(False)
-            self.listen_all.set(False)
-            self.selected_hf_mirror.set("不使用镜像")
+            self.enable_cors.set(True)
+            self.listen_all.set(True)
+            self.selected_hf_mirror.set("hf-mirror")
             self.save_config()
             messagebox.showinfo("完成", "已恢复默认设置")
 

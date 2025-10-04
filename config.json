@@ -1,19 +1,10 @@
 {
   "launch_options": {
-    "default_mode": "run_nvidia_gpu_hf_mirror.bat",
-    "custom_args": "",
-    "auto_launch": false,
-    "minimize_on_launch": false,
     "default_compute_mode": "gpu",
     "default_port": "8188",
-    "enable_hf_mirror": false,
-    "enable_git_proxy": false,
-    "enable_pypi_proxy": false,
     "enable_fast_mode": false,
-    "enable_cors": false,
-    "listen_all": false,
-    "hf_mirror": "不使用镜像",
-    "pypi_mirror": "不使用镜像"
+    "enable_cors": true,
+    "listen_all": true
   },
   "ui_settings": {
     "window_width": 800,
@@ -29,7 +20,8 @@
     "custom_nodes": "ComfyUI/custom_nodes",
     "bat_files_directory": ".",
     "comfyui_path": "ComfyUI",
-    "python_path": "python_embeded/python.exe"
+    "python_path": "python_embeded/python.exe",
+    "hf_mirror": "hf-mirror"
   },
   "advanced": {
     "check_environment_changes": true,
