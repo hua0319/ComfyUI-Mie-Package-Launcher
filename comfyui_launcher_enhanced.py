@@ -4,6 +4,7 @@ from tkinter import font as tkfont
 import subprocess, threading, json, os, sys, webbrowser, tempfile, atexit
 import shlex
 from pathlib import Path
+from urllib.parse import urlparse
 from PIL import Image, ImageTk
 from version_manager import VersionManager
 from utils import run_hidden, have_git, is_git_repo
@@ -136,6 +137,74 @@ class BigLaunchButton(tk.Frame):
     def set_text(self, txt):
         self.label.config(text=txt)
 
+# ================== 小号圆角按钮（与一键启动风格一致） ==================
+class RoundedButton(tk.Frame):
+    def __init__(self, parent, text="按钮", width=120, height=36,
+                 color="#2F6EF6", hover="#2760DB", active="#1F52BE",
+                 radius=10, command=None,
+                 font=("Microsoft YaHei", 11, "bold")):
+        super().__init__(parent, width=width, height=height, bg=parent.cget("bg"))
+        self.w = width
+        self.h = height
+        self.radius = radius
+        self.color = color
+        self.hover = hover
+        self.active = active
+        self.command = command
+        self.state = "idle"
+        self.canvas = tk.Canvas(self, width=width, height=height, bd=0, highlightthickness=0,
+                                bg=parent.cget("bg"))
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.label = tk.Label(self.canvas, text=text, bg=color, fg="#FFF",
+                              font=font)
+        self._draw(color)
+        self._place()
+        for w in (self.canvas, self.label):
+            w.bind("<Enter>", lambda e: self._on_hover())
+            w.bind("<Leave>", lambda e: self._refresh())
+            w.bind("<ButtonPress-1>", lambda e: self._on_press())
+            w.bind("<ButtonRelease-1>", lambda e: self._on_release())
+
+    def _draw(self, fill):
+        c = self.canvas
+        w, h, r = self.w, self.h, self.radius
+        c.delete("bg")
+        # 中心矩形与四边
+        c.create_rectangle(r, 0, w - r, h, fill=fill, outline=fill, tags="bg")
+        c.create_rectangle(0, r, w, h - r, fill=fill, outline=fill, tags="bg")
+        # 四角圆弧
+        for (x0, y0) in [(0, 0), (w - 2 * r, 0), (0, h - 2 * r), (w - 2 * r, h - 2 * r)]:
+            c.create_oval(x0, y0, x0 + 2 * r, y0 + 2 * r, fill=fill, outline=fill, tags="bg")
+
+    def _place(self):
+        self.canvas.create_window(self.w / 2, self.h / 2, window=self.label, anchor="center", tags="lbl")
+
+    def _on_hover(self):
+        if self.state == "idle":
+            self._draw(self.hover)
+            self.label.config(bg=self.hover)
+
+    def _on_press(self):
+        self._draw(self.active)
+        self.label.config(bg=self.active)
+
+    def _on_release(self):
+        if self.command:
+            self.command()
+        self._refresh()
+
+    def _refresh(self):
+        base = self.color if self.state == "idle" else (self.active if self.state == "starting" else self.hover)
+        self._draw(base)
+        self.label.config(bg=base)
+
+    def set_state(self, st):
+        self.state = st
+        self._refresh()
+
+    def set_text(self, txt):
+        self.label.config(text=txt)
+
 # ================== Section 卡片（图标与标题基线对齐版本） ==================
 class SectionCard(tk.Frame):
     def __init__(self, parent,
@@ -230,16 +299,74 @@ class ComfyUILauncherEnhanced:
             return
         self._initialized = True
         self.root = tk.Tk()
-        # 安装日志记录与异常钩子，输出到 logs/launcher.log
-        self.logger = install_logging()
+        # 统一工作目录为项目根目录（优先选择包含 ComfyUI/main.py 的目录），并在该根目录同级创建 launcher 日志目录
         try:
-            self.logger.info("启动器初始化")
+            base_root_candidates = []
+            # 源码环境：launcher 上级目录
+            try:
+                base_root_candidates.append(Path(__file__).resolve().parent.parent)
+            except Exception:
+                pass
+            # PyInstaller 环境资源目录
+            try:
+                from sys import _MEIPASS  # type: ignore
+                if _MEIPASS:
+                    base_root_candidates.append(Path(_MEIPASS))
+            except Exception:
+                pass
+            # EXE 所在目录
+            try:
+                base_root_candidates.append(Path(sys.executable).resolve().parent)
+            except Exception:
+                pass
+            # 当前工作目录作为兜底
+            base_root_candidates.append(Path.cwd())
+            base_root = None
+            # 第一轮：优先选择包含 ComfyUI/main.py 的候选
+            for cand in base_root_candidates:
+                try:
+                    if cand and cand.exists() and (cand / "ComfyUI" / "main.py").exists():
+                        base_root = cand
+                        break
+                except Exception:
+                    pass
+            # 第二轮：没有命中则选择第一个存在的目录
+            if base_root is None:
+                for cand in base_root_candidates:
+                    try:
+                        if cand and cand.exists():
+                            base_root = cand
+                            break
+                    except Exception:
+                        pass
+            base_root = base_root or Path.cwd()
+            # 缓存根目录，并切换工作目录
+            try:
+                self._base_root = base_root
+            except Exception:
+                pass
+            os.chdir(base_root)
+            # 在确定根目录后再安装日志，确保日志始终写入 ComfyUI 同级的 launcher 目录
+            try:
+                self.logger = install_logging(log_root=base_root)
+                try:
+                    self.logger.info("启动器初始化")
+                    self.logger.info("工作目录: %s", str(base_root))
+                except Exception:
+                    pass
+            except Exception:
+                pass
         except Exception:
             pass
+
+        # 初始化窗口外观
         self.setup_window()
 
         # 基础配置与变量需尽早初始化，避免后续保护性路径检查时出现属性缺失
-        self.config_file = Path("launcher/config.json")
+        try:
+            self.config_file = (Path.cwd() / "launcher" / "config.json").resolve()
+        except Exception:
+            self.config_file = Path("launcher/config.json")
         self.load_config()
         self.setup_variables()
 
@@ -329,19 +456,100 @@ class ComfyUILauncherEnhanced:
         except Exception:
             pass
 
+        # 载入其他设置
         self.load_settings()
 
-        # 将父对象传入自身实例而非 Tk root，以便 VersionManager
-        # 能访问启动器的 resolve_git() 与 git_path 等方法/属性
+        # 初始化版本管理器（需要 comfyui_path 与 python_path 已解析）
         self.version_manager = VersionManager(
             self,
             self.config["paths"]["comfyui_path"],
             self.config["paths"]["python_path"]
         )
 
+        # 构建界面、启动监控线程并设置关闭事件
         self.build_layout()
         threading.Thread(target=self.monitor_process, daemon=True).start()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def apply_pip_proxy_settings(self):
+        """根据当前 PyPI 代理设置更新 python_embeded/pip.ini。
+        - aliyun/custom: 写入 [global]、index-url、trusted-host
+        - none: 移除 index-url/trusted-host/proxy（若文件仅余空配置则删除）
+        """
+        try:
+            py_path = Path(self.python_exec).resolve()
+            # pip.ini 位于嵌入式 python.exe 的所在目录
+            py_root = py_path.parent if py_path.exists() else Path('python_embeded')
+            pip_ini = py_root / 'pip.ini'
+
+            mode = self.pypi_proxy_mode.get() if hasattr(self.pypi_proxy_mode, 'get') else 'none'
+            url = (self.pypi_proxy_url.get() or '').strip() if hasattr(self.pypi_proxy_url, 'get') else ''
+            pip_proxy = (self.pip_proxy_url.get() or '').strip() if hasattr(self, 'pip_proxy_url') and hasattr(self.pip_proxy_url, 'get') else (
+                (self.config.get('proxy_settings', {}) or {}).get('pip_proxy_url', '')
+            )
+
+            if mode == 'none':
+                if pip_ini.exists():
+                    try:
+                        content = pip_ini.read_text(encoding='utf-8', errors='ignore')
+                        lines = [ln for ln in content.splitlines() if ln.strip()]
+                        filtered = []
+                        for ln in lines:
+                            low = ln.strip().lower()
+                            if low.startswith('index-url') or low.startswith('trusted-host') or low.startswith('proxy'):
+                                continue
+                            filtered.append(ln)
+                        non_comment = [ln for ln in filtered if ln.strip() and not ln.strip().startswith('#')]
+                        if not non_comment or (len(non_comment) == 1 and non_comment[0].strip().lower() == '[global]'):
+                            pip_ini.unlink(missing_ok=True)
+                        else:
+                            pip_ini.write_text('\n'.join(filtered) + '\n', encoding='utf-8')
+                    except Exception:
+                        try:
+                            pip_ini.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                return
+
+            if mode == 'aliyun':
+                index_url = 'https://mirrors.aliyun.com/pypi/simple/'
+                trusted_host = 'mirrors.aliyun.com'
+            else:
+                index_url = url or ''
+                try:
+                    parsed = urlparse(index_url)
+                    trusted_host = parsed.hostname or ''
+                except Exception:
+                    trusted_host = ''
+
+            if not index_url:
+                return
+
+            lines = ['[global]', f'index-url = {index_url}']
+            if trusted_host:
+                lines.append(f'trusted-host = {trusted_host}')
+            if pip_proxy:
+                lines.append(f'proxy = {pip_proxy}')
+            try:
+                pip_ini.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            try:
+                pip_ini.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+                try:
+                    self.logger.info("已更新 pip.ini: mode=%s url=%s host=%s proxy=%s", mode, index_url, trusted_host, pip_proxy or '-')
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    self.logger.warning("写入 pip.ini 失败: %s", str(pip_ini))
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                self.logger.exception("应用 PyPI 代理到 pip.ini 时出错")
+            except Exception:
+                pass
 
     # ---------- 样式 ----------
     def setup_window(self):
@@ -493,9 +701,9 @@ class ComfyUILauncherEnhanced:
             return "阿里云" if mode == "aliyun" else ("自定义" if mode == "custom" else "不使用")
         self.pypi_proxy_mode_ui = tk.StringVar(value=_pypi_mode_ui_text(default_pypi_mode))
 
-        # 变更时持久化
-        self.pypi_proxy_mode.trace_add("write", lambda *a: self.save_config())
-        self.pypi_proxy_url.trace_add("write", lambda *a: self.save_config())
+        # 变更时持久化并自动应用到 pip.ini
+        self.pypi_proxy_mode.trace_add("write", lambda *a: (self.save_config(), self.apply_pip_proxy_settings()))
+        self.pypi_proxy_url.trace_add("write", lambda *a: (self.save_config(), self.apply_pip_proxy_settings()))
 
         self.compute_mode.trace_add("write", lambda *a: self.save_config())
         self.use_fast_mode.trace_add("write", lambda *a: self.save_config())
@@ -554,7 +762,11 @@ class ComfyUILauncherEnhanced:
             "hf_mirror_url": "https://hf-mirror.com"
         }
         }
-        self.config_file.parent.mkdir(exist_ok=True)
+        # 确保配置目录存在
+        try:
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
         if self.config_file.exists():
             try:
                 self.config = json.load(open(self.config_file, 'r', encoding='utf-8'))
@@ -571,6 +783,21 @@ class ComfyUILauncherEnhanced:
         else:
             # 直接写入默认配置，避免在变量尚未初始化时调用 save_config
             self.config = default
+            # 在无配置文件时，若根目录存在 ComfyUI 且包含 main.py，则自动设置为 ComfyUI 路径
+            try:
+                app_root = getattr(self, "_base_root", Path(__file__).resolve().parent.parent)
+            except Exception:
+                app_root = Path.cwd()
+            auto_comfy = app_root / "ComfyUI"
+            try:
+                if auto_comfy.exists() and (auto_comfy / "main.py").exists():
+                    self.config["paths"]["comfyui_path"] = str(auto_comfy.resolve())
+                    try:
+                        self.logger.info("检测到本地 ComfyUI 目录，已自动设置路径: %s", str(auto_comfy.resolve()))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             try:
                 with open(self.config_file, 'w', encoding='utf-8') as f:
                     json.dump(self.config, f, indent=2, ensure_ascii=False)
@@ -869,34 +1096,167 @@ class ComfyUILauncherEnhanced:
         tk.Label(port_row, text="端口号:", bg=self.CARD_BG, fg=c["TEXT"], font=BODY_FONT) \
             .pack(side=tk.LEFT, padx=(0, 8))
         ttk.Entry(port_row, textvariable=self.custom_port, width=14) \
-            .pack(side=tk.LEFT, padx=(0, PORT_MIRROR_GAP))
+            .pack(side=tk.LEFT)
 
-        tk.Label(port_row, text="HF 镜像:", bg=self.CARD_BG, fg=c["TEXT"], font=BODY_FONT) \
-            .pack(side=tk.LEFT, padx=(0, 8))
-        # 增加“自定义”选项并添加输入框
+        # —— 网络配置（HF 镜像、GitHub 代理、PyPI 代理） ——
+        tk.Label(form, text="网络配置:", bg=self.CARD_BG, fg=c["TEXT"],
+                 font=HEAD_LABEL_FONT) \
+            .grid(row=3, column=0, sticky="nw", padx=(0, 14), pady=(0, ROW_GAP))
+
+        net_frame = tk.Frame(form, bg=self.CARD_BG)
+        # 让网络配置区域横向填充，从而可将按钮推到更靠右
+        net_frame.grid(row=3, column=1, sticky="we", pady=(0, ROW_GAP))
+        # 右侧动作区：用于放置“恢复默认设置”按钮
+        try:
+            # 作为弹性占位列，腾出右侧空间
+            net_frame.grid_columnconfigure(3, weight=1)
+        except Exception:
+            pass
+        # HF 镜像
+        tk.Label(net_frame, text="HF 镜像:", bg=self.CARD_BG, fg=c["TEXT"], font=BODY_FONT) \
+            .grid(row=0, column=0, sticky='w', padx=(0, 8))
         self.hf_mirror_combobox = ttk.Combobox(
-            port_row,
+            net_frame,
             textvariable=self.selected_hf_mirror,
             values=["不使用镜像", "hf-mirror", "自定义"],
             state="readonly",
             width=12
         )
-        self.hf_mirror_combobox.pack(side=tk.LEFT)
-        # HF 镜像 URL 输入框（与 GitHub 代理行为一致）
-        self.hf_mirror_entry = ttk.Entry(port_row, textvariable=self.hf_mirror_url, width=26)
-        self.hf_mirror_entry.pack(side=tk.LEFT, padx=(8, 0))
+        self.hf_mirror_combobox.grid(row=0, column=1, sticky='w')
+        self.hf_mirror_entry = ttk.Entry(net_frame, textvariable=self.hf_mirror_url, width=26)
+        self.hf_mirror_entry.grid(row=0, column=2, sticky='w', padx=(8, 0))
         self.hf_mirror_combobox.bind("<<ComboboxSelected>>", self.on_hf_mirror_selected)
-        # 初始化输入框状态
         try:
             self.on_hf_mirror_selected()
         except Exception:
             pass
 
-        btn_row = tk.Frame(form, bg=self.CARD_BG)
-        btn_row.grid(row=3, column=1, sticky="w", pady=(BUTTON_TOP_GAP, 0))
-        ttk.Button(btn_row, text="恢复默认设置",
-                   style='Secondary.TButton',
-                   command=self.reset_settings).pack(side=tk.LEFT)
+        # GitHub 代理（品牌大小写）
+        tk.Label(net_frame, text="GitHub 代理:", bg=self.CARD_BG, fg=c["TEXT"], font=BODY_FONT).grid(
+            row=1, column=0, sticky='w', padx=(0, 8), pady=(6, 0)
+        )
+        self.github_proxy_mode_combo = ttk.Combobox(
+            net_frame,
+            textvariable=self.version_manager.proxy_mode_ui_var,
+            values=["不使用", "gh-proxy", "自定义"],
+            state='readonly',
+            width=12
+        )
+        self.github_proxy_mode_combo.grid(row=1, column=1, sticky='w', padx=(0, 8), pady=(6, 0))
+        self.github_proxy_url_entry = ttk.Entry(
+            net_frame,
+            textvariable=self.version_manager.proxy_url_var,
+            width=24
+        )
+        # 自定义 URL 与下拉框之间拉开距离（与 HF 镜像一致）
+        self.github_proxy_url_entry.grid(row=1, column=2, sticky='w', padx=(8, 0), pady=(6, 0))
+
+        def _set_github_entry_visibility():
+            try:
+                mode = self.version_manager.proxy_mode_var.get()
+                if mode == 'custom':
+                    if not self.github_proxy_url_entry.winfo_ismapped():
+                        self.github_proxy_url_entry.grid(row=1, column=2, sticky='w', padx=(8, 0), pady=(6, 0))
+                    self.github_proxy_url_entry.configure(state='normal')
+                else:
+                    self.github_proxy_url_entry.grid_remove()
+                    self.github_proxy_url_entry.configure(state='disabled')
+            except Exception:
+                pass
+
+        def _on_mode_change_local(_evt=None):
+            try:
+                vm = self.version_manager
+                vm.proxy_mode_var.set(vm._get_mode_internal(vm.proxy_mode_ui_var.get()))
+                if vm.proxy_mode_var.get() == 'gh-proxy':
+                    vm.proxy_url_var.set('https://gh-proxy.com/')
+                _set_github_entry_visibility()
+                vm.save_proxy_settings()
+            except Exception:
+                pass
+
+        try:
+            self.github_proxy_mode_combo.bind('<<ComboboxSelected>>', _on_mode_change_local)
+            _set_github_entry_visibility()
+        except Exception:
+            pass
+
+        # PyPI 代理（品牌大小写）
+        tk.Label(net_frame, text="PyPI 代理:", bg=self.CARD_BG, fg=c["TEXT"], font=BODY_FONT).grid(
+            row=2, column=0, sticky='w', padx=(0, 8), pady=(6, 0)
+        )
+        self.pypi_proxy_mode_combo = ttk.Combobox(
+            net_frame,
+            textvariable=self.pypi_proxy_mode_ui,
+            values=["不使用", "阿里云", "自定义"],
+            state='readonly',
+            width=12
+        )
+        self.pypi_proxy_mode_combo.grid(row=2, column=1, sticky='w', padx=(0, 8), pady=(6, 0))
+        self.pypi_proxy_url_entry = ttk.Entry(
+            net_frame,
+            textvariable=self.pypi_proxy_url,
+            width=24
+        )
+        # 自定义 URL 与下拉框之间拉开距离（与 HF 镜像一致）
+        self.pypi_proxy_url_entry.grid(row=2, column=2, sticky='w', padx=(8, 0), pady=(6, 0))
+
+        # 在网络配置的右侧空白处放置“恢复默认设置”按钮，使用蓝色强调样式
+        right_actions = tk.Frame(net_frame, bg=self.CARD_BG)
+        # 把按钮放到更靠右的第4列，并靠右对齐
+        right_actions.grid(row=0, column=4, rowspan=3, sticky='e', padx=(16, 0), pady=(0, 0))
+        # 使用圆角矩形按钮（小号）
+        self.restore_defaults_btn = RoundedButton(
+            right_actions,
+            text="恢复默认设置",
+            width=132,
+            height=36,
+            color=self.COLORS["ACCENT"],
+            hover=self.COLORS["ACCENT_HOVER"],
+            active=self.COLORS["ACCENT_ACTIVE"],
+            radius=10,
+            command=self.reset_settings,
+        )
+        self.restore_defaults_btn.pack(anchor='e')
+
+        def _set_pypi_entry_visibility():
+            try:
+                mode = self.pypi_proxy_mode.get()
+                if mode == 'custom':
+                    if not self.pypi_proxy_url_entry.winfo_ismapped():
+                        self.pypi_proxy_url_entry.grid(row=2, column=2, sticky='w', padx=(8, 0), pady=(6, 0))
+                    self.pypi_proxy_url_entry.configure(state='normal')
+                else:
+                    self.pypi_proxy_url_entry.grid_remove()
+                    self.pypi_proxy_url_entry.configure(state='disabled')
+            except Exception:
+                pass
+
+        def _pypi_mode_internal(ui_text: str) -> str:
+            if ui_text == "阿里云":
+                return "aliyun"
+            if ui_text == "自定义":
+                return "custom"
+            return "none"
+
+        def _on_pypi_mode_change(_evt=None):
+            try:
+                self.pypi_proxy_mode.set(_pypi_mode_internal(self.pypi_proxy_mode_ui.get()))
+                if self.pypi_proxy_mode.get() == 'aliyun':
+                    self.pypi_proxy_url.set('https://mirrors.aliyun.com/pypi/simple/')
+                _set_pypi_entry_visibility()
+                self.save_config()
+                self.apply_pip_proxy_settings()
+            except Exception:
+                pass
+
+        try:
+            self.pypi_proxy_mode_combo.bind('<<ComboboxSelected>>', _on_pypi_mode_change)
+            _set_pypi_entry_visibility()
+        except Exception:
+            pass
+
+        # 原先的“恢复默认设置”按钮已移动到网络配置右侧并改为蓝色
 
         tk.Frame(container, bg=self.CARD_BG, height=2).pack(fill=tk.X)
 
@@ -931,7 +1291,7 @@ class ComfyUILauncherEnhanced:
         tk.Label(batch_card, text="批量更新:", bg=self.CARD_BG, fg=c["TEXT"],
                  font=self.INTERNAL_HEAD_LABEL_FONT).pack(anchor='w', padx=(0, 8))
 
-        # 表单与按钮并排：左侧为统一表单（复选与代理），右侧为更新按钮
+        # 表单与按钮并排：左侧为统一表单（复选），右侧为更新按钮
         proxy_area = tk.Frame(batch_card, bg=self.CARD_BG)
         proxy_area.pack(fill=tk.X, pady=(8, 0))
 
@@ -975,120 +1335,23 @@ class ComfyUILauncherEnhanced:
         self.front_chk.pack(side=tk.LEFT, padx=(0, 10))
         self.tpl_chk.pack(side=tk.LEFT)
 
-        # 第1行：GitHub 代理
-        # 与勾选项统一字号，使用系统默认字体
-        tk.Label(form_frame, text="GitHub代理:", bg=self.CARD_BG, fg=c["TEXT"]).grid(
-            row=1, column=0, sticky='w', padx=(0, 10), pady=(0, 6)
-        )
-        self.github_proxy_mode_combo = ttk.Combobox(
-            form_frame,
-            textvariable=self.version_manager.proxy_mode_ui_var,
-            values=["不使用", "gh-proxy", "自定义"],
-            state='readonly',
-            width=12
-        )
-        self.github_proxy_mode_combo.grid(row=1, column=1, sticky='w', padx=(0, 8), pady=(0, 6))
-        self.github_proxy_url_entry = ttk.Entry(
-            form_frame,
-            textvariable=self.version_manager.proxy_url_var,
-            width=24
-        )
-        # 不随列扩展，保持较短宽度
-        self.github_proxy_url_entry.grid(row=1, column=2, sticky='w', padx=(0, 8), pady=(0, 6))
-
-        def _set_github_entry_visibility():
-            try:
-                mode = self.version_manager.proxy_mode_var.get()
-                if mode == 'custom':
-                    if not self.github_proxy_url_entry.winfo_ismapped():
-                        self.github_proxy_url_entry.grid(row=1, column=2, sticky='w', padx=(0, 8), pady=(0, 6))
-                    self.github_proxy_url_entry.configure(state='normal')
-                else:
-                    self.github_proxy_url_entry.grid_remove()
-                    self.github_proxy_url_entry.configure(state='disabled')
-            except Exception:
-                pass
-
-        def _on_mode_change_local(_evt=None):
-            try:
-                vm = self.version_manager
-                vm.proxy_mode_var.set(vm._get_mode_internal(vm.proxy_mode_ui_var.get()))
-                if vm.proxy_mode_var.get() == 'gh-proxy':
-                    vm.proxy_url_var.set('https://gh-proxy.com/')
-                _set_github_entry_visibility()
-                vm.save_proxy_settings()
-            except Exception:
-                pass
-
-        try:
-            self.github_proxy_mode_combo.bind('<<ComboboxSelected>>', _on_mode_change_local)
-            _set_github_entry_visibility()
-        except Exception:
-            pass
-
-        # 第2行：PyPI 代理
-        # 与勾选项统一字号，使用系统默认字体
-        tk.Label(form_frame, text="PyPI代理:", bg=self.CARD_BG, fg=c["TEXT"]).grid(
-            row=2, column=0, sticky='w', padx=(0, 10)
-        )
-        self.pypi_proxy_mode_combo = ttk.Combobox(
-            form_frame,
-            textvariable=self.pypi_proxy_mode_ui,
-            values=["不使用", "阿里云", "自定义"],
-            state='readonly',
-            width=12
-        )
-        self.pypi_proxy_mode_combo.grid(row=2, column=1, sticky='w', padx=(0, 8))
-        self.pypi_proxy_url_entry = ttk.Entry(
-            form_frame,
-            textvariable=self.pypi_proxy_url,
-            width=24
-        )
-        self.pypi_proxy_url_entry.grid(row=2, column=2, sticky='w', padx=(0, 8))
-
-        def _set_pypi_entry_visibility():
-            try:
-                mode = self.pypi_proxy_mode.get()
-                if mode == 'custom':
-                    if not self.pypi_proxy_url_entry.winfo_ismapped():
-                        self.pypi_proxy_url_entry.grid(row=2, column=2, sticky='w', padx=(0, 8))
-                    self.pypi_proxy_url_entry.configure(state='normal')
-                else:
-                    self.pypi_proxy_url_entry.grid_remove()
-                    self.pypi_proxy_url_entry.configure(state='disabled')
-            except Exception:
-                pass
-
-        def _pypi_mode_internal(ui_text: str) -> str:
-            if ui_text == "阿里云":
-                return "aliyun"
-            if ui_text == "自定义":
-                return "custom"
-            return "none"
-
-        def _on_pypi_mode_change(_evt=None):
-            try:
-                self.pypi_proxy_mode.set(_pypi_mode_internal(self.pypi_proxy_mode_ui.get()))
-                if self.pypi_proxy_mode.get() == 'aliyun':
-                    self.pypi_proxy_url.set('https://mirrors.aliyun.com/pypi/simple/')
-                _set_pypi_entry_visibility()
-                self.save_config()
-            except Exception:
-                pass
-
-        try:
-            self.pypi_proxy_mode_combo.bind('<<ComboboxSelected>>', _on_pypi_mode_change)
-            _set_pypi_entry_visibility()
-        except Exception:
-            pass
+        #（已将 GitHub / PyPI 代理迁移到“启动控制 > 网络配置”）
 
         # 右侧小号“更新”按钮（仿照一键启动样式）
         update_btn_container = tk.Frame(proxy_area, bg=self.CARD_BG)
         update_btn_container.pack(side=tk.RIGHT, padx=(48, 0))
-        self.batch_update_btn = BigLaunchButton(update_btn_container, text="更新",
-                                                size=110, radius=20,
-                                                color="#2F6EF6", hover="#2760DB", active="#1F52BE",
-                                                command=self.perform_batch_update)
+        # 使用圆角矩形样式的小号按钮
+        self.batch_update_btn = RoundedButton(
+            update_btn_container,
+            text="更新",
+            width=96,
+            height=36,
+            color=self.COLORS["ACCENT"],
+            hover=self.COLORS["ACCENT_HOVER"],
+            active=self.COLORS["ACCENT_ACTIVE"],
+            radius=10,
+            command=self.perform_batch_update,
+        )
         self.batch_update_btn.pack()
         self.frontend_update_btn = self.batch_update_btn
         self.template_update_btn = self.batch_update_btn
@@ -1119,8 +1382,20 @@ class ComfyUILauncherEnhanced:
             ("插件目录", self.open_plugins_dir),
             ("重设ComfyUI目录", self.reset_comfyui_path),
         ]:
-            btn_style = 'Accent.TButton' if '重新设置' in txt else 'Secondary.TButton'
-            btn = ttk.Button(grid, text=txt, style=btn_style, command=cmd)
+            if txt == '重设ComfyUI目录':
+                btn = RoundedButton(
+                    grid,
+                    text=txt,
+                    width=150,
+                    height=36,
+                    color=self.COLORS["ACCENT"],
+                    hover=self.COLORS["ACCENT_HOVER"],
+                    active=self.COLORS["ACCENT_ACTIVE"],
+                    radius=10,
+                    command=cmd,
+                )
+            else:
+                btn = ttk.Button(grid, text=txt, style='Secondary.TButton', command=cmd)
             self.quick_buttons.append(btn)
 
         def _relayout(_evt=None):
@@ -1266,6 +1541,21 @@ class ComfyUILauncherEnhanced:
                 self.logger.info("环境变量(HF_ENDPOINT): %s", env.get("HF_ENDPOINT", ""))
             except Exception:
                 pass
+            # 若设置了 GitHub 代理，则注入 GITHUB_ENDPOINT 环境变量
+            try:
+                vm = getattr(self, 'version_manager', None)
+                if vm and vm.proxy_mode_var.get() in ('gh-proxy', 'custom'):
+                    base = (vm.proxy_url_var.get() or '').strip()
+                    if base:
+                        if not base.endswith('/'):
+                            base += '/'
+                        env["GITHUB_ENDPOINT"] = f"{base}https://github.com"
+            except Exception:
+                pass
+            try:
+                self.logger.info("环境变量(GITHUB_ENDPOINT): %s", env.get("GITHUB_ENDPOINT", ""))
+            except Exception:
+                pass
             self.big_btn.set_state("starting")
             self.big_btn.set_text("启动中…")
 
@@ -1390,6 +1680,25 @@ class ComfyUILauncherEnhanced:
             self.enable_cors.set(True)
             self.listen_all.set(True)
             self.selected_hf_mirror.set("hf-mirror")
+            # 恢复默认：PyPI 使用阿里云
+            try:
+                if hasattr(self, 'pypi_proxy_mode_ui'):
+                    self.pypi_proxy_mode_ui.set("阿里云")
+                if hasattr(self, 'pypi_proxy_mode'):
+                    self.pypi_proxy_mode.set("aliyun")
+                if hasattr(self, 'pypi_proxy_url'):
+                    self.pypi_proxy_url.set("https://mirrors.aliyun.com/pypi/simple/")
+                # 立即应用到 pip.ini
+                try:
+                    self.apply_pip_proxy_settings()
+                except Exception:
+                    pass
+                try:
+                    self.logger.info("恢复默认设置：PyPI=阿里云，已更新 pip.ini")
+                except Exception:
+                    pass
+            except Exception:
+                pass
             # 恢复默认时清空额外选项输入
             try:
                 self.extra_launch_args.set("")
@@ -1468,9 +1777,30 @@ class ComfyUILauncherEnhanced:
             for v in (self.comfyui_version, self.frontend_version,
                       self.template_version, self.python_version, self.torch_version):
                 v.set("获取中…")
-        else:
+        elif scope == "core_only":
             try:
                 self.comfyui_version.set("获取中…")
+            except Exception:
+                pass
+        elif scope == "front_only":
+            try:
+                self.frontend_version.set("获取中…")
+            except Exception:
+                pass
+        elif scope == "template_only":
+            try:
+                self.template_version.set("获取中…")
+            except Exception:
+                pass
+        elif scope == "selected":
+            # 仅将被选中的项目置为“获取中…”，避免误认为全部更新
+            try:
+                if self.update_core_var.get():
+                    self.comfyui_version.set("获取中…")
+                if self.update_frontend_var.get():
+                    self.frontend_version.set("获取中…")
+                if self.update_template_var.get():
+                    self.template_version.set("获取中…")
             except Exception:
                 pass
 
@@ -1515,8 +1845,35 @@ class ComfyUILauncherEnhanced:
                         pass
                 self.root.after(0, _update_git_controls)
 
-                if root.exists() and self.git_path:
+                # 是否需要刷新内核版本信息（仅当 scope 要求或被选中）
+                core_needed = (scope == "all") or (scope == "core_only") or (scope == "selected" and self.update_core_var.get())
+                if core_needed and root.exists() and self.git_path:
                     try:
+                        # 先尝试同步远端标签，确保本地 `describe` 能拿到最新版本标签
+                        try:
+                            target_url = None
+                            try:
+                                origin_url = self.version_manager.get_remote_url()
+                                target_url = self.version_manager.compute_proxied_url(origin_url) or origin_url
+                            except Exception:
+                                target_url = None
+                            fetch_args = [self.git_path, "fetch", "--tags"]
+                            if target_url:
+                                fetch_args.append(target_url)
+                            r_fetch_tags = run_hidden(fetch_args, cwd=str(root), capture_output=True, text=True, timeout=15)
+                            if r_fetch_tags and r_fetch_tags.returncode == 0:
+                                try:
+                                    self.logger.info("版本诊断: fetch tags 成功 url=%s", target_url or "origin")
+                                except Exception:
+                                    pass
+                            else:
+                                try:
+                                    self.logger.warning("版本诊断: fetch tags 失败 rc=%s stderr=%s", getattr(r_fetch_tags, 'returncode', 'N/A'), getattr(r_fetch_tags, 'stderr', ''))
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
                         r = run_hidden([self.git_path, "describe", "--tags", "--abbrev=0"],
                                            cwd=str(root), capture_output=True, text=True, timeout=10)
                         if r.returncode == 0:
@@ -1524,12 +1881,47 @@ class ComfyUILauncherEnhanced:
                             r2 = run_hidden([self.git_path, "rev-parse", "--short", "HEAD"],
                                                 cwd=str(root), capture_output=True, text=True, timeout=10)
                             commit = r2.stdout.strip() if r2.returncode == 0 else ""
+                            # 追加诊断日志：记录本地标签与提交
+                            try:
+                                self.logger.info("版本诊断: local_tag=%s local_commit=%s path=%s", tag, commit, str(root))
+                            except Exception:
+                                pass
+                            # 追加诊断日志：列出本地最近的若干标签
+                            try:
+                                r_tags_local = run_hidden([self.git_path, "tag", "--list"],
+                                                          cwd=str(root), capture_output=True, text=True, timeout=10)
+                                if r_tags_local and r_tags_local.returncode == 0:
+                                    tags_all = [t.strip() for t in r_tags_local.stdout.splitlines() if t.strip()]
+                                    recent_local = ", ".join(tags_all[-5:]) if tags_all else "<none>"
+                                    self.logger.info("版本诊断: local_tags_recent=%s (count=%d)", recent_local, len(tags_all))
+                            except Exception:
+                                pass
+                            # 追加诊断日志：对比远端标签（经代理）
+                            try:
+                                target_url = None
+                                try:
+                                    origin_url = self.version_manager.get_remote_url()
+                                    target_url = self.version_manager.compute_proxied_url(origin_url) or origin_url
+                                except Exception:
+                                    target_url = None
+                                if target_url:
+                                    r_tags_remote = run_hidden([self.git_path, "ls-remote", "--tags", target_url],
+                                                                cwd=str(root), capture_output=True, text=True, timeout=15)
+                                    if r_tags_remote and r_tags_remote.returncode == 0:
+                                        # 取最后若干行（通常为最新标签）
+                                        lines = [ln for ln in r_tags_remote.stdout.splitlines() if ln.strip()]
+                                        recent_remote = ", ".join([ln.split("\t")[-1] for ln in lines[-5:]]) if lines else "<none>"
+                                        self.logger.info("版本诊断: remote_tags_recent=%s url=%s", recent_remote, target_url)
+                                    else:
+                                        self.logger.warning("版本诊断: 远端标签查询失败 rc=%s stderr=%s", getattr(r_tags_remote, 'returncode', 'N/A'), getattr(r_tags_remote, 'stderr', ''))
+                            except Exception:
+                                pass
                             self.root.after(0, lambda t=tag, c=commit: self.comfyui_version.set(f"{t} ({c})"))
                         else:
                             self.root.after(0, lambda: self.comfyui_version.set("未找到"))
                     except:
                         self.root.after(0, lambda: self.comfyui_version.set("未找到"))
-                else:
+                elif core_needed:
                     self.root.after(0, lambda: self.comfyui_version.set("ComfyUI未找到"))
 
                 if scope == "all":
@@ -1554,9 +1946,14 @@ class ComfyUILauncherEnhanced:
                     except:
                         self.root.after(0, lambda: self.torch_version.set("获取失败"))
 
-                if scope == "all":
+                # 前端版本仅在需要时查询：'all' 或显式前端
+                if scope == "all" or scope == "front_only" or (scope == "selected" and self.update_frontend_var.get()):
                     try:
                         # 优先使用 python -m pip
+                        try:
+                            self.logger.info("操作pip: 仅查询 comfyui-frontend-package 版本（不会安装/更新；python -m pip）")
+                        except Exception:
+                            pass
                         r = run_hidden([self.python_exec, "-m", "pip", "show", "comfyui-frontend-package"],
                                            capture_output=True, text=True, timeout=10)
                         if r.returncode == 0:
@@ -1572,6 +1969,10 @@ class ComfyUILauncherEnhanced:
                             try:
                                 pip_exe = Path(self.python_exec).resolve().parent.parent / "Scripts" / "pip.exe"
                                 if pip_exe.exists():
+                                    try:
+                                        self.logger.info("操作pip: 仅查询 comfyui-frontend-package 版本（不会安装/更新；pip.exe）")
+                                    except Exception:
+                                        pass
                                     r2 = run_hidden([str(pip_exe), "show", "comfyui-frontend-package"],
                                                     capture_output=True, text=True, timeout=10)
                                     if r2.returncode == 0:
@@ -1591,8 +1992,13 @@ class ComfyUILauncherEnhanced:
                     except:
                         self.root.after(0, lambda: self.frontend_version.set("获取失败"))
 
-                if scope == "all":
+                # 模板库版本仅在需要时查询：'all' 或显式模板库
+                if scope == "all" or scope == "template_only" or (scope == "selected" and self.update_template_var.get()):
                     try:
+                        try:
+                            self.logger.info("操作pip: 仅查询 comfyui-workflow-templates 版本（不会安装/更新；python -m pip）")
+                        except Exception:
+                            pass
                         r = run_hidden([self.python_exec, "-m", "pip", "show", "comfyui-workflow-templates"],
                                            capture_output=True, text=True, timeout=10)
                         if r.returncode == 0:
@@ -1608,6 +2014,10 @@ class ComfyUILauncherEnhanced:
                             try:
                                 pip_exe = Path(self.python_exec).resolve().parent.parent / "Scripts" / "pip.exe"
                                 if pip_exe.exists():
+                                    try:
+                                        self.logger.info("操作pip: 仅查询 comfyui-workflow-templates 版本（不会安装/更新；pip.exe）")
+                                    except Exception:
+                                        pass
                                     r2 = run_hidden([str(pip_exe), "show", "comfyui-workflow-templates"],
                                                     capture_output=True, text=True, timeout=10)
                                     if r2.returncode == 0:
@@ -1639,7 +2049,7 @@ class ComfyUILauncherEnhanced:
         if hasattr(self, 'batch_update_btn'):
             # 更新按钮视觉为忙碌状态（BigLaunchButton 优先）
             try:
-                if isinstance(self.batch_update_btn, BigLaunchButton):
+                if isinstance(self.batch_update_btn, (BigLaunchButton, RoundedButton)):
                     self.batch_update_btn.set_text("更新中…")
                     self.batch_update_btn.set_state('starting')
                 else:
@@ -1649,35 +2059,88 @@ class ComfyUILauncherEnhanced:
 
         def worker():
             try:
+                # 统计勾选数量，若为多模块更新则抑制单独弹窗并汇总结果
+                selected_count = int(bool(self.update_core_var.get())) + int(bool(self.update_frontend_var.get())) + int(bool(self.update_template_var.get()))
+                multi_mode = selected_count > 1
+                results = []
                 if self.update_core_var.get():
                     try:
-                        # 使用 VersionManager 的更新逻辑（支持 GitHub 代理、分支解析与错误提示）
-                        self.version_manager.update_to_latest()
+                        # 使用 VersionManager 的更新逻辑（支持 GitHub 代理、分支解析与错误提示），批量更新时跳过确认并同步执行
+                        core_res = self.version_manager.update_to_latest(confirm=False, notify=not multi_mode)
+                        if core_res:
+                            results.append(core_res)
                     except:
                         pass
                 if self.update_frontend_var.get():
                     try:
-                        self.update_frontend()
+                        fr_res = self.update_frontend(notify=not multi_mode)
+                        if fr_res:
+                            results.append(fr_res)
                     except:
                         pass
                 if self.update_template_var.get():
                     try:
-                        self.update_template_library()
+                        tpl_res = self.update_template_library(notify=not multi_mode)
+                        if tpl_res:
+                            results.append(tpl_res)
                     except:
                         pass
                 try:
-                    if self.update_core_var.get() and not (self.update_frontend_var.get() or self.update_template_var.get()):
+                    # 根据勾选项选择性刷新版本信息，避免全部内容刷新
+                    only_core = self.update_core_var.get() and not (self.update_frontend_var.get() or self.update_template_var.get())
+                    only_front = self.update_frontend_var.get() and not (self.update_core_var.get() or self.update_template_var.get())
+                    only_tpl = self.update_template_var.get() and not (self.update_core_var.get() or self.update_frontend_var.get())
+                    if only_core:
                         self.get_version_info(scope="core_only")
+                    elif only_front:
+                        self.get_version_info(scope="front_only")
+                    elif only_tpl:
+                        self.get_version_info(scope="template_only")
                     else:
-                        self.get_version_info(scope="all")
+                        # 多选场景：仅刷新被选中的项目
+                        self.get_version_info(scope="selected")
                 except:
                     pass
+                # 如为多模块同时更新，合并为一条最终弹窗
+                if multi_mode:
+                    from tkinter import messagebox
+                    def _notify_summary():
+                        lines = []
+                        for res in results:
+                            comp = res.get("component")
+                            if comp == "core":
+                                if res.get("error"):
+                                    lines.append(f"内核：更新失败（{res.get('error')}）")
+                                elif res.get("updated") is True:
+                                    lines.append(f"内核：已更新到最新提交（{res.get('branch') or ''}）")
+                                elif res.get("updated") is False:
+                                    lines.append(f"内核：已是最新，无需更新（{res.get('branch') or ''}）")
+                                else:
+                                    lines.append("内核：更新流程完成")
+                            elif comp == "frontend":
+                                ver = res.get("version") or ""
+                                if res.get("updated"):
+                                    lines.append(f"前端：已更新到最新版本（{ver}）")
+                                elif res.get("up_to_date"):
+                                    lines.append(f"前端：已是最新，无需更新（{ver}）")
+                                else:
+                                    lines.append("前端：更新流程完成")
+                            elif comp == "templates":
+                                ver = res.get("version") or ""
+                                if res.get("updated"):
+                                    lines.append(f"模板库：已更新到最新版本（{ver}）")
+                                elif res.get("up_to_date"):
+                                    lines.append(f"模板库：已是最新，无需更新（{ver}）")
+                                else:
+                                    lines.append("模板库：更新流程完成")
+                        messagebox.showinfo("完成", "\n".join(lines))
+                    self.root.after(0, _notify_summary)
             finally:
                 def _reset_btn():
                     self.batch_updating = False
                     if hasattr(self, 'batch_update_btn'):
                         try:
-                            if isinstance(self.batch_update_btn, BigLaunchButton):
+                            if isinstance(self.batch_update_btn, (BigLaunchButton, RoundedButton)):
                                 self.batch_update_btn.set_text("更新")
                                 self.batch_update_btn.set_state('idle')
                             else:
@@ -1688,7 +2151,7 @@ class ComfyUILauncherEnhanced:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def update_frontend(self):
+    def update_frontend(self, notify: bool = True):
         # 使用 PyPI 代理更新前端包 comfyui-frontend-package
         try:
             idx = None
@@ -1704,11 +2167,50 @@ class ComfyUILauncherEnhanced:
             cmd = [str(pip_exe if pip_exe.exists() else self.python_exec), "-m", "pip", "install", "-U", "comfyui-frontend-package"]
             if idx:
                 cmd.extend(["-i", idx])
-            run_hidden(cmd, capture_output=True, text=True)
+            try:
+                self.logger.info("操作pip: 安装/更新 comfyui-frontend-package，index=%s，cmd=%s", idx or '-', " ".join(cmd))
+            except Exception:
+                pass
+            r = run_hidden(cmd, capture_output=True, text=True)
+            # 根据 pip 输出判断是否发生了实际更新，并给出提醒
+            try:
+                out = getattr(r, 'stdout', '') or ''
+                updated = ("Successfully installed" in out) or ("Installing collected packages" in out) or ("Successfully upgraded" in out)
+                up_to_date = ("Requirement already satisfied" in out) and not updated
+                # 查询安装后的版本号用于提示
+                installed_ver = None
+                try:
+                    r_show = run_hidden([str(pip_exe if pip_exe.exists() else self.python_exec), "-m", "pip", "show", "comfyui-frontend-package"], capture_output=True, text=True, timeout=10)
+                    if r_show.returncode == 0:
+                        for line in (getattr(r_show, 'stdout', '') or '').splitlines():
+                            if line.startswith("Version:"):
+                                installed_ver = line.split(":", 1)[1].strip()
+                                break
+                except Exception:
+                    pass
+                if notify:
+                    def _notify():
+                        try:
+                            if updated:
+                                messagebox.showinfo("完成", f"前端已更新到最新版本{f'（v{installed_ver}）' if installed_ver else ''}")
+                            elif up_to_date:
+                                messagebox.showinfo("完成", f"前端已是最新，无需更新{f'（v{installed_ver}）' if installed_ver else ''}")
+                            else:
+                                messagebox.showinfo("完成", "前端更新流程完成（请查看日志确认是否发生变更）")
+                        except Exception:
+                            pass
+                    self.root.after(0, _notify)
+                return {"component": "frontend", "updated": bool(updated), "up_to_date": bool(up_to_date), "version": (f"v{installed_ver}" if installed_ver else None)}
+            except Exception:
+                pass
+            try:
+                self.logger.info("操作pip: 前端包更新完成")
+            except Exception:
+                pass
         except Exception:
             pass
 
-    def update_template_library(self):
+    def update_template_library(self, notify: bool = True):
         # 使用 PyPI 代理更新模板库 comfyui-workflow-templates
         try:
             idx = None
@@ -1723,7 +2225,46 @@ class ComfyUILauncherEnhanced:
             cmd = [str(pip_exe if pip_exe.exists() else self.python_exec), "-m", "pip", "install", "-U", "comfyui-workflow-templates"]
             if idx:
                 cmd.extend(["-i", idx])
-            run_hidden(cmd, capture_output=True, text=True)
+            try:
+                self.logger.info("操作pip: 安装/更新 comfyui-workflow-templates，index=%s，cmd=%s", idx or '-', " ".join(cmd))
+            except Exception:
+                pass
+            r = run_hidden(cmd, capture_output=True, text=True)
+            # 根据 pip 输出判断是否发生了实际更新，并给出提醒
+            try:
+                out = getattr(r, 'stdout', '') or ''
+                updated = ("Successfully installed" in out) or ("Installing collected packages" in out) or ("Successfully upgraded" in out)
+                up_to_date = ("Requirement already satisfied" in out) and not updated
+                # 查询安装后的版本号用于提示
+                installed_ver = None
+                try:
+                    r_show = run_hidden([str(pip_exe if pip_exe.exists() else self.python_exec), "-m", "pip", "show", "comfyui-workflow-templates"], capture_output=True, text=True, timeout=10)
+                    if r_show.returncode == 0:
+                        for line in (getattr(r_show, 'stdout', '') or '').splitlines():
+                            if line.startswith("Version:"):
+                                installed_ver = line.split(":", 1)[1].strip()
+                                break
+                except Exception:
+                    pass
+                if notify:
+                    def _notify():
+                        try:
+                            if updated:
+                                messagebox.showinfo("完成", f"模板库已更新到最新版本{f'（v{installed_ver}）' if installed_ver else ''}")
+                            elif up_to_date:
+                                messagebox.showinfo("完成", f"模板库已是最新，无需更新{f'（v{installed_ver}）' if installed_ver else ''}")
+                            else:
+                                messagebox.showinfo("完成", "模板库更新流程完成（请查看日志确认是否发生变更）")
+                        except Exception:
+                            pass
+                    self.root.after(0, _notify)
+                return {"component": "templates", "updated": bool(updated), "up_to_date": bool(up_to_date), "version": (f"v{installed_ver}" if installed_ver else None)}
+            except Exception:
+                pass
+            try:
+                self.logger.info("操作pip: 模板库更新完成")
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -1760,6 +2301,14 @@ class ComfyUILauncherEnhanced:
                             self.logger.info(f"Git解析: 使用整合包Git path={self.git_path}")
                         except Exception:
                             pass
+                        # 检测到便携版 Git：尝试写入 ComfyUI-Manager 的 config.ini
+                        try:
+                            self._apply_manager_git_exe(self.git_path)
+                        except Exception:
+                            try:
+                                self.logger.exception("应用便携Git到 ComfyUI-Manager 配置失败")
+                            except Exception:
+                                pass
                         return self.git_path, "使用整合包Git"
             except Exception:
                 pass
@@ -1785,6 +2334,94 @@ class ComfyUILauncherEnhanced:
             pass
         return None, "未找到Git命令"
 
+    def _apply_manager_git_exe(self, git_path: str):
+        """当解析到便携版 Git 时，将其写入 ComfyUI-Manager 的 config.ini 的 git_exe。
+        并在 launcher/config.json 中记录已应用，以避免重复设置。
+        """
+        try:
+            if not git_path or git_path == "git":
+                return
+            # 解析 ComfyUI 根目录
+            comfy_root = None
+            try:
+                comfy_root = Path(self.config["paths"].get("comfyui_path", "")).resolve()
+            except Exception:
+                comfy_root = None
+            if not (comfy_root and comfy_root.exists()):
+                try:
+                    self.logger.warning("应用便携Git到 Manager 跳过: ComfyUI 路径无效")
+                except Exception:
+                    pass
+                return
+
+            ini_path = comfy_root / "user" / "default" / "ComfyUI-Manager" / "config.ini"
+            # 读取并检查配置标记，避免重复设置
+            try:
+                integrations = self.config.setdefault("integrations", {})
+            except Exception:
+                integrations = {}
+                try:
+                    self.config["integrations"] = integrations
+                except Exception:
+                    pass
+            last_path = integrations.get("comfyui_manager_git_path")
+            if last_path == git_path and ini_path.exists():
+                try:
+                    self.logger.info("便携Git已应用到 ComfyUI-Manager，跳过重复设置: path=%s", git_path)
+                except Exception:
+                    pass
+                return
+
+            # 确保目录存在
+            try:
+                ini_path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+
+            # 读取现有内容
+            try:
+                content = ini_path.read_text(encoding="utf-8", errors="ignore") if ini_path.exists() else ""
+            except Exception:
+                content = ""
+            lines = content.splitlines()
+            updated = False
+            new_lines = []
+            for line in lines:
+                if line.strip().lower().startswith("git_exe"):
+                    new_lines.append(f"git_exe = {git_path}")
+                    updated = True
+                else:
+                    new_lines.append(line)
+            if not updated:
+                new_lines.append(f"git_exe = {git_path}")
+
+            try:
+                ini_path.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+            except Exception:
+                # 回退到二进制写入
+                try:
+                    with open(ini_path, "wb") as f:
+                        f.write(("\n".join(new_lines) + ("\n" if new_lines else "")).encode("utf-8", errors="ignore"))
+                except Exception:
+                    raise
+
+            # 在 launcher 配置里记录成功应用
+            try:
+                integrations["comfyui_manager_git_set"] = True
+                integrations["comfyui_manager_git_path"] = git_path
+                json.dump(self.config, open(self.config_file, 'w', encoding='utf-8'), indent=2, ensure_ascii=False)
+            except Exception:
+                pass
+            try:
+                self.logger.info("已将便携Git写入 ComfyUI-Manager 配置: %s", str(ini_path))
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self.logger.exception("写入 ComfyUI-Manager git_exe 失败")
+            except Exception:
+                pass
+
     # ---------- 运行 ----------
     def run(self):
         # 如果启动阶段已经判定为致命错误，则直接安全退出
@@ -1794,8 +2431,12 @@ class ComfyUILauncherEnhanced:
             except Exception:
                 pass
             return
-        # 正常路径：加载版本信息并进入消息循环
-        self.get_version_info()
+        # 正常路径：进入消息循环（版本信息在界面构建后加载）
+        try:
+            if hasattr(self, 'comfyui_version'):
+                self.get_version_info()
+        except Exception:
+            pass
         self.root.mainloop()
 
     def on_hf_mirror_selected(self, _=None):
@@ -1804,9 +2445,9 @@ class ComfyUILauncherEnhanced:
             # 自定义时显示并可编辑；其他模式隐藏并禁用
             if sel == "自定义":
                 try:
-                    # 若未显示，则重新显示
                     if not self.hf_mirror_entry.winfo_ismapped():
-                        self.hf_mirror_entry.pack(side=tk.LEFT, padx=(8, 0))
+                        # 统一改为 grid 布局
+                        self.hf_mirror_entry.grid(row=0, column=2, sticky='w', padx=(8, 0))
                 except Exception:
                     pass
                 self.hf_mirror_entry.configure(state='normal')
@@ -1816,7 +2457,8 @@ class ComfyUILauncherEnhanced:
                     self.hf_mirror_url.set("https://hf-mirror.com")
                 self.hf_mirror_entry.configure(state='disabled')
                 try:
-                    self.hf_mirror_entry.pack_forget()
+                    # 统一隐藏为 grid_remove
+                    self.hf_mirror_entry.grid_remove()
                 except Exception:
                     pass
             self.save_config()
@@ -1835,6 +2477,33 @@ class ComfyUILauncherEnhanced:
 if __name__ == "__main__":
     lock = SingletonLock("comfyui_launcher_section_card_with_divider.lock")
     if not lock.acquire():
+        # 当检测到已有实例或锁未释放时，给出清晰提示并记录日志
+        try:
+            from logger_setup import install_logging
+            _logger = install_logging()
+            _logger.warning("启动器二次启动被阻止：检测到已有实例或锁未释放")
+        except Exception:
+            pass
+        try:
+            # 弹出友好提示（为保证在无主窗口时可用，创建临时隐藏 root）
+            import tkinter as _tk
+            from tkinter import messagebox as _msg
+            _tmp = _tk.Tk()
+            _tmp.withdraw()
+            _msg.showwarning(
+                "启动器已在运行",
+                "检测到已有启动器实例或锁未释放。\n\n"
+                "- 如果窗口已打开，请切换到已运行的窗口。\n"
+                "- 如果没有窗口，可能仍在初始化，请等待数秒后再试。\n"
+                "- 若问题持续，可重启电脑或稍后重试。"
+            )
+            _tmp.destroy()
+        except Exception:
+            pass
+        try:
+            print("[提示] 启动器已在运行或锁未释放，当前启动请求已忽略。")
+        except Exception:
+            pass
         sys.exit(0)
     try:
         app = ComfyUILauncherEnhanced()

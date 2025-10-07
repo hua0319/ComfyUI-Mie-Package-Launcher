@@ -351,11 +351,18 @@ class VersionManager:
             return None
 
     def _after(self, fn):
-        target = self._after_target or self.parent
+        # 优先在已建立的顶层窗口调度；否则使用父级的 root；最后兜底直接调用
+        target = self._after_target or getattr(self.parent, "root", None) or self.parent
         try:
-            target.after(0, fn)
-        except:
-            pass
+            if hasattr(target, "after"):
+                target.after(0, fn)
+            else:
+                fn()
+        except Exception:
+            try:
+                fn()
+            except Exception:
+                pass
 
     def get_default_branch(self):
         """
@@ -494,10 +501,10 @@ class VersionManager:
 
                 if log_ref:
                     r_log = self.run_git_command(
-                        ['log', '--pretty=format:%H|%ad|%an|%s', '--date=short', '-200', log_ref])
+                        ['log', '--pretty=format:%H|%cd|%an|%s', '--date=short', '--date-order', '-200', log_ref])
                 else:
                     r_log = self.run_git_command(
-                        ['log', '--pretty=format:%H|%ad|%an|%s', '--date=short', '-200'])
+                        ['log', '--pretty=format:%H|%cd|%an|%s', '--date=short', '--date-order', '-200'])
                 if r_log and r_log.returncode == 0:
                     commits = []
                     for line in r_log.stdout.strip().split('\n'):
@@ -576,7 +583,7 @@ class VersionManager:
         return None
 
     # ---------- 更新 / 切换 ----------
-    def update_to_latest(self):
+    def update_to_latest(self, confirm: bool = True, notify: bool = True):
         """更新到当前分支（或默认分支）最新提交。"""
         try:
             logging.getLogger("comfyui_launcher").info("开始更新到最新: path=%s", str(self.comfyui_path))
@@ -589,6 +596,8 @@ class VersionManager:
             except Exception:
                 pass
             return
+
+        result_status = {"component": "core", "updated": None, "branch": None, "error": None}
 
         def worker():
             try:
@@ -621,6 +630,24 @@ class VersionManager:
                     branch = default_branch
 
                 # fetch & pull（支持代理）
+                # 诊断：更新前记录本地标签与当前提交
+                try:
+                    r_local_tag = self.run_git_command(['describe', '--tags', '--abbrev=0'])
+                    r_local_commit = self.run_git_command(['rev-parse', '--short', 'HEAD'])
+                    logging.getLogger("comfyui_launcher").info(
+                        "更新诊断: before local_tag=%s local_commit=%s",
+                        (r_local_tag.stdout.strip() if r_local_tag and r_local_tag.returncode == 0 else '<none>'),
+                        (r_local_commit.stdout.strip() if r_local_commit and r_local_commit.returncode == 0 else '<none>')
+                    )
+                    r_local_tags = self.run_git_command(['tag', '--list'])
+                    if r_local_tags and r_local_tags.returncode == 0:
+                        tags_all = [t.strip() for t in r_local_tags.stdout.splitlines() if t.strip()]
+                        logging.getLogger("comfyui_launcher").info(
+                            "更新诊断: before local_tags_recent=%s (count=%d)",
+                            ", ".join(tags_all[-5:]) if tags_all else '<none>', len(tags_all)
+                        )
+                except Exception:
+                    pass
                 target_remote_url = None
                 if self.proxy_mode_var and self.proxy_mode_var.get() != 'none':
                     try:
@@ -655,6 +682,42 @@ class VersionManager:
                         pass
                     return
 
+                # 额外同步标签：避免本地 `describe` 落后于远端最新标签
+                try:
+                    remote_target = target_remote_url or 'origin'
+                    logging.getLogger("comfyui_launcher").info(
+                        "准备fetch tags: target=%s", remote_target
+                    )
+                    fetch_tags = self.run_git_command(['fetch', '--tags', remote_target])
+                    if fetch_tags and fetch_tags.returncode == 0:
+                        logging.getLogger("comfyui_launcher").info("fetch tags 完成")
+                    else:
+                        logging.getLogger("comfyui_launcher").warning(
+                            "fetch tags 失败: rc=%s, stderr=%s",
+                            getattr(fetch_tags, 'returncode', 'N/A'), getattr(fetch_tags, 'stderr', '')
+                        )
+                except Exception:
+                    pass
+
+                # 诊断：远端标签概览（经代理或origin）
+                try:
+                    remote_target = target_remote_url or 'origin'
+                    r_tags_remote = self.run_git_command(['ls-remote', '--tags', remote_target])
+                    if r_tags_remote and r_tags_remote.returncode == 0:
+                        lines = [ln for ln in r_tags_remote.stdout.splitlines() if ln.strip()]
+                        recent_remote = ", ".join([ln.split('\t')[-1] for ln in lines[-5:]]) if lines else "<none>"
+                        logging.getLogger("comfyui_launcher").info(
+                            "更新诊断: remote_tags_recent=%s target=%s",
+                            recent_remote, remote_target
+                        )
+                    else:
+                        logging.getLogger("comfyui_launcher").warning(
+                            "更新诊断: 远端标签查询失败 rc=%s stderr=%s",
+                            getattr(r_tags_remote, 'returncode', 'N/A'), getattr(r_tags_remote, 'stderr', '')
+                        )
+                except Exception:
+                    pass
+
                 try:
                     logging.getLogger("comfyui_launcher").info(
                         "准备pull: branch=%s, proxied=%s, url=%s",
@@ -667,33 +730,89 @@ class VersionManager:
                 else:
                     pull = self.run_git_command(['pull', '--ff-only'])
                 if not pull or pull.returncode != 0:
-                    self._after(lambda: messagebox.showerror("错误", f"更新失败: {pull.stderr if pull else ''}"))
+                    # 错误提示
+                    if notify:
+                        self._after(lambda: messagebox.showerror("错误", f"更新失败: {pull.stderr if pull else ''}"))
+                    else:
+                        try:
+                            result_status["error"] = getattr(pull, 'stderr', '') or '更新失败'
+                            result_status["branch"] = branch
+                        except Exception:
+                            result_status["error"] = '更新失败'
                     try:
                         logging.getLogger("comfyui_launcher").error("pull失败: branch=%s, rc=%s, stderr=%s", branch, getattr(pull, 'returncode', 'N/A'), getattr(pull, 'stderr', ''))
                     except Exception:
                         pass
                     return
 
+                # 根据 git pull 输出区分是否实际发生更新
+                try:
+                    pull_out = getattr(pull, 'stdout', '') or ''
+                except Exception:
+                    pull_out = ''
+                actually_updated = True
+                if pull_out:
+                    if ("Already up to date" in pull_out) or ("Already up-to-date" in pull_out) or ("已经是最新" in pull_out):
+                        actually_updated = False
                 # 所有 UI 更新必须在主线程执行，以免无反馈
-                self._after(lambda: messagebox.showinfo("成功", f"已更新到最新提交（{branch}）"))
+                if notify:
+                    if actually_updated:
+                        self._after(lambda: messagebox.showinfo("成功", f"已更新到最新提交（{branch}）"))
+                    else:
+                        self._after(lambda: messagebox.showinfo("成功", f"已是最新，无需更新（{branch}）"))
+                else:
+                    try:
+                        result_status["updated"] = bool(actually_updated)
+                        result_status["branch"] = branch
+                    except Exception:
+                        pass
                 self._after(self.refresh_git_info)
                 try:
                     logging.getLogger("comfyui_launcher").info("更新到最新完成: branch=%s", branch)
                 except Exception:
                     pass
+                # 诊断：更新后记录本地标签与当前提交
+                try:
+                    r_local_tag2 = self.run_git_command(['describe', '--tags', '--abbrev=0'])
+                    r_local_commit2 = self.run_git_command(['rev-parse', '--short', 'HEAD'])
+                    logging.getLogger("comfyui_launcher").info(
+                        "更新诊断: after  local_tag=%s local_commit=%s",
+                        (r_local_tag2.stdout.strip() if r_local_tag2 and r_local_tag2.returncode == 0 else '<none>'),
+                        (r_local_commit2.stdout.strip() if r_local_commit2 and r_local_commit2.returncode == 0 else '<none>')
+                    )
+                    r_local_tags2 = self.run_git_command(['tag', '--list'])
+                    if r_local_tags2 and r_local_tags2.returncode == 0:
+                        tags_all2 = [t.strip() for t in r_local_tags2.stdout.splitlines() if t.strip()]
+                        logging.getLogger("comfyui_launcher").info(
+                            "更新诊断: after  local_tags_recent=%s (count=%d)",
+                            ", ".join(tags_all2[-5:]) if tags_all2 else '<none>', len(tags_all2)
+                        )
+                except Exception:
+                    pass
             except Exception as e:
-                self._after(lambda: messagebox.showerror("错误", f"更新失败: {e}"))
+                if notify:
+                    self._after(lambda: messagebox.showerror("错误", f"更新失败: {e}"))
+                else:
+                    try:
+                        result_status["error"] = str(e)
+                    except Exception:
+                        pass
                 try:
                     logging.getLogger("comfyui_launcher").exception("更新到最新异常")
                 except Exception:
                     pass
 
-        if messagebox.askyesno("确认", "确定更新到当前分支最新提交吗？"):
-            threading.Thread(target=worker, daemon=True).start()
-            try:
-                logging.getLogger("comfyui_launcher").info("已确认更新，启动后台线程")
-            except Exception:
-                pass
+        if confirm:
+            if messagebox.askyesno("确认", "确定更新到当前分支最新提交吗？"):
+                threading.Thread(target=worker, daemon=True).start()
+                try:
+                    logging.getLogger("comfyui_launcher").info("已确认更新，启动后台线程")
+                except Exception:
+                    pass
+        else:
+            # 在批量更新的后台线程中同步执行，避免额外弹出确认框
+            worker()
+            return result_status
 
     # ---------- 代理与配置 ----------
     def _get_mode_ui_text(self, mode: str) -> str:
