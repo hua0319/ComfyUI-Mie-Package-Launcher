@@ -80,9 +80,28 @@ def run_hidden(cmd, **kwargs):
                 if isinstance(stderr, (bytes, bytearray)):
                     stderr = stderr.decode("utf-8", errors="ignore")
             try:
-                logger.info(
-                    f"run_hidden[{cmd_id}]: rc={result.returncode}\nstdout:\n{_truncate_text(stdout, output_limit)}\nstderr:\n{_truncate_text(stderr, output_limit)}"
-                )
+                # Special handling for pip show to avoid excessively long logs
+                if " pip show " in cmd_lower or cmd_lower.strip().endswith("pip show"):
+                    name_val = None
+                    ver_val = None
+                    try:
+                        for line in (stdout or "").splitlines():
+                            l = line.strip()
+                            if l.lower().startswith("name:"):
+                                name_val = l.split(":", 1)[1].strip()
+                            elif l.lower().startswith("version:"):
+                                ver_val = l.split(":", 1)[1].strip()
+                        logger.info(
+                            f"run_hidden[{cmd_id}]: rc={result.returncode} pip_show name={name_val} version={ver_val}"
+                        )
+                    except Exception:
+                        logger.info(
+                            f"run_hidden[{cmd_id}]: rc={result.returncode} (pip_show)\nstdout:\n{_truncate_text(stdout, 512)}\nstderr:\n{_truncate_text(stderr, 512)}"
+                        )
+                else:
+                    logger.info(
+                        f"run_hidden[{cmd_id}]: rc={result.returncode}\nstdout:\n{_truncate_text(stdout, output_limit)}\nstderr:\n{_truncate_text(stderr, output_limit)}"
+                    )
             except Exception:
                 pass
         else:

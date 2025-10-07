@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkinter import font as tkfont
 import subprocess, threading, json, os, sys, webbrowser, tempfile, atexit
+import shlex
 from pathlib import Path
 from PIL import Image, ImageTk
 from version_manager import VersionManager
@@ -462,6 +463,8 @@ class ComfyUILauncherEnhanced:
         self.enable_cors = tk.BooleanVar(value=True)
         self.listen_all = tk.BooleanVar(value=True)
         self.custom_port = tk.StringVar(value="8188")
+        # 额外启动参数（用户自定义，将与其它选项一起拼接到命令）
+        self.extra_launch_args = tk.StringVar(value="")
         self.hf_mirror_options = {"不使用镜像": "", "hf-mirror": "https://hf-mirror.com"}
         self.selected_hf_mirror = tk.StringVar(value="hf-mirror")
         self.comfyui_version = tk.StringVar(value="获取中…")
@@ -497,6 +500,7 @@ class ComfyUILauncherEnhanced:
         self.enable_cors.trace_add("write", lambda *a: self.save_config())
         self.listen_all.trace_add("write", lambda *a: self.save_config())
         self.custom_port.trace_add("write", lambda *a: self.save_config())
+        self.extra_launch_args.trace_add("write", lambda *a: self.save_config())
         # HF 镜像 URL（新增）
         default_hf_url = proxy_cfg.get("hf_mirror_url", "https://hf-mirror.com")
         self.hf_mirror_url = tk.StringVar(value=default_hf_url)
@@ -514,7 +518,8 @@ class ComfyUILauncherEnhanced:
                 "default_port": "8188",
                 "enable_fast_mode": False,
                 "enable_cors": True,
-                "listen_all": True
+                "listen_all": True,
+                "extra_args": ""
             },
             "ui_settings": {
                 "window_width": 800,
@@ -541,7 +546,7 @@ class ComfyUILauncherEnhanced:
             },
             "proxy_settings": {
             "git_proxy_mode": "gh-proxy",
-            "git_proxy_url": "https://ghproxy.com/",
+            "git_proxy_url": "https://gh-proxy.com/",
             "pypi_proxy_mode": "aliyun",
             "pypi_proxy_url": "https://mirrors.aliyun.com/pypi/simple/",
             "hf_mirror_url": "https://hf-mirror.com"
@@ -592,6 +597,7 @@ class ComfyUILauncherEnhanced:
             "enable_fast_mode": _get(self.use_fast_mode, False),
             "enable_cors": _get(self.enable_cors, True),
             "listen_all": _get(self.listen_all, True),
+            "extra_args": _get(self.extra_launch_args, ""),
         }
         # 记录镜像选项（模式与 URL）
         self.config["paths"]["hf_mirror"] = _get(self.selected_hf_mirror, "hf-mirror")
@@ -616,6 +622,7 @@ class ComfyUILauncherEnhanced:
         self.use_fast_mode.set(opt.get("enable_fast_mode", False))
         self.enable_cors.set(opt.get("enable_cors", True))
         self.listen_all.set(opt.get("listen_all", True))
+        self.extra_launch_args.set(opt.get("extra_args", ""))
 
     # ---------- 布局 ----------
     def build_layout(self):
@@ -833,6 +840,12 @@ class ComfyUILauncherEnhanced:
                        activebackground=self.CARD_BG, activeforeground=self.COLORS["TEXT"],
                        selectcolor=self.CARD_BG) \
             .pack(side=tk.LEFT)
+        # 右侧加入额外选项输入
+        tk.Frame(checks, bg=self.CARD_BG).pack(side=tk.LEFT, expand=True)  # 弹性占位，使右侧靠齐
+        tk.Label(checks, text="额外选项:", bg=self.CARD_BG, fg=c["TEXT"], font=BODY_FONT) \
+            .pack(side=tk.LEFT, padx=(INLINE_GAP, 8))
+        ttk.Entry(checks, textvariable=self.extra_launch_args, width=36) \
+            .pack(side=tk.LEFT)
 
         spacer = tk.Frame(form, bg=self.CARD_BG, width=1, height=1)
         spacer.grid(row=2, column=0)
@@ -987,7 +1000,7 @@ class ComfyUILauncherEnhanced:
                 vm = self.version_manager
                 vm.proxy_mode_var.set(vm._get_mode_internal(vm.proxy_mode_ui_var.get()))
                 if vm.proxy_mode_var.get() == 'gh-proxy':
-                    vm.proxy_url_var.set('https://ghproxy.com/')
+                    vm.proxy_url_var.set('https://gh-proxy.com/')
                 _set_github_entry_visibility()
                 vm.save_proxy_settings()
             except Exception:
@@ -1214,8 +1227,18 @@ class ComfyUILauncherEnhanced:
                 cmd.extend(["--port", port])
             if self.enable_cors.get():
                 cmd.extend(["--enable-cors-header", "*"])
+            # 追加自定义额外参数（支持引号与空格）
+            extra = (self.extra_launch_args.get() or "").strip()
+            if extra:
+                try:
+                    extra_tokens = shlex.split(extra)
+                except Exception:
+                    extra_tokens = extra.split()
+                cmd.extend(extra_tokens)
             try:
                 self.logger.info("启动命令: %s", " ".join(cmd))
+                if extra:
+                    self.logger.info("附加参数: %s", extra)
             except Exception:
                 pass
             env = os.environ.copy()
@@ -1243,12 +1266,19 @@ class ComfyUILauncherEnhanced:
                     else:
                         self.root.after(0, lambda: self.on_start_failed("进程退出"))
                 except Exception as e:
-                    self.root.after(0, lambda: self.on_start_failed(str(e)))
+                    msg = str(e)
+                    # 捕获当前异常信息到默认参数，避免闭包中变量未绑定问题
+                    self.root.after(0, lambda m=msg: self.on_start_failed(m))
 
             threading.Thread(target=worker, daemon=True).start()
         except Exception as e:
-            messagebox.showerror("启动失败", str(e))
-            self.on_start_failed(str(e))
+            msg = str(e)
+            try:
+                messagebox.showerror("启动失败", msg)
+            except Exception:
+                pass
+            # 同样使用默认参数绑定，避免在 after 回调中出现自由变量问题
+            self.on_start_failed(msg)
 
     def on_start_success(self):
         try:
@@ -1346,6 +1376,11 @@ class ComfyUILauncherEnhanced:
             self.enable_cors.set(True)
             self.listen_all.set(True)
             self.selected_hf_mirror.set("hf-mirror")
+            # 恢复默认时清空额外选项输入
+            try:
+                self.extra_launch_args.set("")
+            except Exception:
+                pass
             self.save_config()
             try:
                 self.logger.info("已恢复默认设置")
@@ -1407,7 +1442,7 @@ class ComfyUILauncherEnhanced:
         messagebox.showinfo("完成", "ComfyUI 目录已更新")
 
     # ---------- 版本 ----------
-    def get_version_info(self):
+    def get_version_info(self, scope: str = "all"):
         try:
             self.logger.info("开始获取版本信息")
         except Exception:
@@ -1415,9 +1450,15 @@ class ComfyUILauncherEnhanced:
         if getattr(self, '_version_info_loading', False):
             return
         self._version_info_loading = True
-        for v in (self.comfyui_version, self.frontend_version,
-                  self.template_version, self.python_version, self.torch_version):
-            v.set("获取中…")
+        if scope == "all":
+            for v in (self.comfyui_version, self.frontend_version,
+                      self.template_version, self.python_version, self.torch_version):
+                v.set("获取中…")
+        else:
+            try:
+                self.comfyui_version.set("获取中…")
+            except Exception:
+                pass
 
         def worker():
             try:
@@ -1477,96 +1518,100 @@ class ComfyUILauncherEnhanced:
                 else:
                     self.root.after(0, lambda: self.comfyui_version.set("ComfyUI未找到"))
 
-                try:
-                    r = run_hidden([self.python_exec, "--version"],
-                                       capture_output=True, text=True, timeout=10)
-                    if r.returncode == 0:
-                        self.root.after(0, lambda v=r.stdout.strip().replace("Python ", ""): self.python_version.set(v))
-                    else:
-                        self.root.after(0, lambda: self.python_version.set("无法获取"))
-                except:
-                    self.root.after(0, lambda: self.python_version.set("获取失败"))
-
-                try:
-                    r = run_hidden([self.python_exec, "-c", "import torch;print(torch.__version__)"],
-                                       capture_output=True, text=True, timeout=15)
-                    if r.returncode == 0:
-                        self.root.after(0, lambda v=r.stdout.strip(): self.torch_version.set(v))
-                    else:
-                        self.root.after(0, lambda: self.torch_version.set("未安装"))
-                except:
-                    self.root.after(0, lambda: self.torch_version.set("获取失败"))
-
-                try:
-                    # 优先使用 python -m pip
-                    r = run_hidden([self.python_exec, "-m", "pip", "show", "comfyui-frontend-package"],
-                                       capture_output=True, text=True, timeout=10)
-                    if r.returncode == 0:
-                        for line in r.stdout.splitlines():
-                            if line.startswith("Version:"):
-                                ver = "v" + line.split(":")[1].strip()
-                                self.root.after(0, lambda v=ver: self.frontend_version.set(v))
-                                break
+                if scope == "all":
+                    try:
+                        r = run_hidden([self.python_exec, "--version"],
+                                           capture_output=True, text=True, timeout=10)
+                        if r.returncode == 0:
+                            self.root.after(0, lambda v=r.stdout.strip().replace("Python ", ""): self.python_version.set(v))
                         else:
-                            self.root.after(0, lambda: self.frontend_version.set("未安装"))
-                    else:
-                        # 备用：直接调用 Scripts\pip.exe
-                        try:
-                            pip_exe = Path(self.python_exec).resolve().parent.parent / "Scripts" / "pip.exe"
-                            if pip_exe.exists():
-                                r2 = run_hidden([str(pip_exe), "show", "comfyui-frontend-package"],
-                                                capture_output=True, text=True, timeout=10)
-                                if r2.returncode == 0:
-                                    for line in r2.stdout.splitlines():
-                                        if line.startswith("Version:"):
-                                            ver = "v" + line.split(":")[1].strip()
-                                            self.root.after(0, lambda v=ver: self.frontend_version.set(v))
-                                            break
+                            self.root.after(0, lambda: self.python_version.set("无法获取"))
+                    except:
+                        self.root.after(0, lambda: self.python_version.set("获取失败"))
+
+                if scope == "all":
+                    try:
+                        r = run_hidden([self.python_exec, "-c", "import torch;print(torch.__version__)"],
+                                           capture_output=True, text=True, timeout=15)
+                        if r.returncode == 0:
+                            self.root.after(0, lambda v=r.stdout.strip(): self.torch_version.set(v))
+                        else:
+                            self.root.after(0, lambda: self.torch_version.set("未安装"))
+                    except:
+                        self.root.after(0, lambda: self.torch_version.set("获取失败"))
+
+                if scope == "all":
+                    try:
+                        # 优先使用 python -m pip
+                        r = run_hidden([self.python_exec, "-m", "pip", "show", "comfyui-frontend-package"],
+                                           capture_output=True, text=True, timeout=10)
+                        if r.returncode == 0:
+                            for line in r.stdout.splitlines():
+                                if line.startswith("Version:"):
+                                    ver = "v" + line.split(":")[1].strip()
+                                    self.root.after(0, lambda v=ver: self.frontend_version.set(v))
+                                    break
+                            else:
+                                self.root.after(0, lambda: self.frontend_version.set("未安装"))
+                        else:
+                            # 备用：直接调用 Scripts\pip.exe
+                            try:
+                                pip_exe = Path(self.python_exec).resolve().parent.parent / "Scripts" / "pip.exe"
+                                if pip_exe.exists():
+                                    r2 = run_hidden([str(pip_exe), "show", "comfyui-frontend-package"],
+                                                    capture_output=True, text=True, timeout=10)
+                                    if r2.returncode == 0:
+                                        for line in r2.stdout.splitlines():
+                                            if line.startswith("Version:"):
+                                                ver = "v" + line.split(":")[1].strip()
+                                                self.root.after(0, lambda v=ver: self.frontend_version.set(v))
+                                                break
+                                        else:
+                                            self.root.after(0, lambda: self.frontend_version.set("未安装"))
                                     else:
                                         self.root.after(0, lambda: self.frontend_version.set("未安装"))
                                 else:
                                     self.root.after(0, lambda: self.frontend_version.set("未安装"))
-                            else:
+                            except:
                                 self.root.after(0, lambda: self.frontend_version.set("未安装"))
-                        except:
-                            self.root.after(0, lambda: self.frontend_version.set("未安装"))
-                except:
-                    self.root.after(0, lambda: self.frontend_version.set("获取失败"))
+                    except:
+                        self.root.after(0, lambda: self.frontend_version.set("获取失败"))
 
-                try:
-                    r = run_hidden([self.python_exec, "-m", "pip", "show", "comfyui-workflow-templates"],
-                                       capture_output=True, text=True, timeout=10)
-                    if r.returncode == 0:
-                        for line in r.stdout.splitlines():
-                            if line.startswith("Version:"):
-                                ver = "v" + line.split(":")[1].strip()
-                                self.root.after(0, lambda v=ver: self.template_version.set(v))
-                                break
+                if scope == "all":
+                    try:
+                        r = run_hidden([self.python_exec, "-m", "pip", "show", "comfyui-workflow-templates"],
+                                           capture_output=True, text=True, timeout=10)
+                        if r.returncode == 0:
+                            for line in r.stdout.splitlines():
+                                if line.startswith("Version:"):
+                                    ver = "v" + line.split(":")[1].strip()
+                                    self.root.after(0, lambda v=ver: self.template_version.set(v))
+                                    break
+                            else:
+                                self.root.after(0, lambda: self.template_version.set("未安装"))
                         else:
-                            self.root.after(0, lambda: self.template_version.set("未安装"))
-                    else:
-                        # 备用：直接调用 Scripts\pip.exe
-                        try:
-                            pip_exe = Path(self.python_exec).resolve().parent.parent / "Scripts" / "pip.exe"
-                            if pip_exe.exists():
-                                r2 = run_hidden([str(pip_exe), "show", "comfyui-workflow-templates"],
-                                                capture_output=True, text=True, timeout=10)
-                                if r2.returncode == 0:
-                                    for line in r2.stdout.splitlines():
-                                        if line.startswith("Version:"):
-                                            ver = "v" + line.split(":")[1].strip()
-                                            self.root.after(0, lambda v=ver: self.template_version.set(v))
-                                            break
+                            # 备用：直接调用 Scripts\pip.exe
+                            try:
+                                pip_exe = Path(self.python_exec).resolve().parent.parent / "Scripts" / "pip.exe"
+                                if pip_exe.exists():
+                                    r2 = run_hidden([str(pip_exe), "show", "comfyui-workflow-templates"],
+                                                    capture_output=True, text=True, timeout=10)
+                                    if r2.returncode == 0:
+                                        for line in r2.stdout.splitlines():
+                                            if line.startswith("Version:"):
+                                                ver = "v" + line.split(":")[1].strip()
+                                                self.root.after(0, lambda v=ver: self.template_version.set(v))
+                                                break
+                                        else:
+                                            self.root.after(0, lambda: self.template_version.set("未安装"))
                                     else:
                                         self.root.after(0, lambda: self.template_version.set("未安装"))
                                 else:
                                     self.root.after(0, lambda: self.template_version.set("未安装"))
-                            else:
+                            except:
                                 self.root.after(0, lambda: self.template_version.set("未安装"))
-                        except:
-                            self.root.after(0, lambda: self.template_version.set("未安装"))
-                except:
-                    self.root.after(0, lambda: self.template_version.set("获取失败"))
+                    except:
+                        self.root.after(0, lambda: self.template_version.set("获取失败"))
             finally:
                 self._version_info_loading = False
 
@@ -1592,10 +1637,8 @@ class ComfyUILauncherEnhanced:
             try:
                 if self.update_core_var.get():
                     try:
-                        root = Path(self.config["paths"]["comfyui_path"]).resolve()
-                        if getattr(self, 'git_path', None):
-                            run_hidden([self.git_path, "pull"], cwd=str(root),
-                                       capture_output=True, text=True)
+                        # 使用 VersionManager 的更新逻辑（支持 GitHub 代理、分支解析与错误提示）
+                        self.version_manager.update_to_latest()
                     except:
                         pass
                 if self.update_frontend_var.get():
@@ -1609,7 +1652,10 @@ class ComfyUILauncherEnhanced:
                     except:
                         pass
                 try:
-                    self.get_version_info()
+                    if self.update_core_var.get() and not (self.update_frontend_var.get() or self.update_template_var.get()):
+                        self.get_version_info(scope="core_only")
+                    else:
+                        self.get_version_info(scope="all")
                 except:
                     pass
             finally:

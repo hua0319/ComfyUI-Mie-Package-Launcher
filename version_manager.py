@@ -93,7 +93,7 @@ class VersionManager:
         proxy_cfg = cfg.get('proxy_settings', {}) if isinstance(cfg, dict) else {}
         # 若配置缺失，默认启用 gh-proxy，与增强版保持一致
         default_mode = proxy_cfg.get('git_proxy_mode', 'gh-proxy')
-        default_url = proxy_cfg.get('git_proxy_url', 'https://ghproxy.com/')
+        default_url = proxy_cfg.get('git_proxy_url', 'https://gh-proxy.com/')
         # 内部保存真实值
         self.proxy_mode_var = tk.StringVar(value=default_mode)
         self.proxy_url_var = tk.StringVar(value=default_url)
@@ -235,7 +235,7 @@ class VersionManager:
             self.proxy_mode_var.set(self._get_mode_internal(self.proxy_mode_ui_var.get()))
             # 预置 ghproxy 默认 URL
             if self.proxy_mode_var.get() == 'gh-proxy':
-                self.proxy_url_var.set('https://ghproxy.com/')
+                self.proxy_url_var.set('https://gh-proxy.com/')
             self._update_proxy_entry_state()
             self.save_proxy_settings()
         self.proxy_mode_combo.bind('<<ComboboxSelected>>', on_mode_change)
@@ -572,11 +572,21 @@ class VersionManager:
                     try:
                         origin_url = self.get_remote_url()
                         target_remote_url = self.compute_proxied_url(origin_url)
+                        try:
+                            logging.getLogger("comfyui_launcher").info(
+                                "代理计算: mode=%s origin=%s proxied=%s",
+                                self.proxy_mode_var.get(), origin_url, target_remote_url or ''
+                            )
+                        except Exception:
+                            pass
                     except Exception:
                         target_remote_url = None
 
                 try:
-                    logging.getLogger("comfyui_launcher").info("准备fetch: proxied=%s", bool(target_remote_url))
+                    logging.getLogger("comfyui_launcher").info(
+                        "准备fetch: proxied=%s url=%s",
+                        bool(target_remote_url), target_remote_url or 'origin'
+                    )
                 except Exception:
                     pass
                 if target_remote_url:
@@ -592,7 +602,10 @@ class VersionManager:
                     return
 
                 try:
-                    logging.getLogger("comfyui_launcher").info("准备pull: branch=%s, proxied=%s", branch, bool(target_remote_url))
+                    logging.getLogger("comfyui_launcher").info(
+                        "准备pull: branch=%s, proxied=%s, url=%s",
+                        branch, bool(target_remote_url), target_remote_url or 'origin'
+                    )
                 except Exception:
                     pass
                 if target_remote_url:
