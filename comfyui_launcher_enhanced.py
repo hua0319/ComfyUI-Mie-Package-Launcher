@@ -1063,7 +1063,7 @@ class ComfyUILauncherEnhanced:
         checks = tk.Frame(form, bg=self.CARD_BG)
         checks.grid(row=1, column=1, sticky="w", pady=(0, ROW_GAP))
         # 改用原生 tk.Checkbutton，Windows 下选中为对号，更贴近用户预期
-        tk.Checkbutton(checks, text="快速模式 (fp16)",
+        tk.Checkbutton(checks, text="快速模式",
                        variable=self.use_fast_mode,
                        bg=self.CARD_BG, fg=self.COLORS["TEXT"],
                        activebackground=self.CARD_BG, activeforeground=self.COLORS["TEXT"],
@@ -1083,7 +1083,7 @@ class ComfyUILauncherEnhanced:
             .pack(side=tk.LEFT)
         # 右侧加入额外选项输入
         tk.Frame(checks, bg=self.CARD_BG).pack(side=tk.LEFT, expand=True)  # 弹性占位，使右侧靠齐
-        tk.Label(checks, text="额外选项:", bg=self.CARD_BG, fg=c["TEXT"], font=BODY_FONT) \
+        tk.Label(checks, text="额外选项:", bg=self.CARD_BG, fg=c["TEXT"]) \
             .pack(side=tk.LEFT, padx=(INLINE_GAP, 8))
         ttk.Entry(checks, textvariable=self.extra_launch_args, width=36) \
             .pack(side=tk.LEFT)
@@ -1508,7 +1508,7 @@ class ComfyUILauncherEnhanced:
             if self.compute_mode.get() == "cpu":
                 cmd.append("--cpu")
             if self.use_fast_mode.get():
-                cmd.extend(["--fast", "fp16_accumulation"])
+                cmd.extend(["--fast"])
             if self.listen_all.get():
                 cmd.extend(["--listen", "0.0.0.0"])
             port = self.custom_port.get().strip()
