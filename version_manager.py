@@ -265,14 +265,25 @@ class VersionManager:
             self.save_proxy_settings()
         self.proxy_mode_combo.bind('<<ComboboxSelected>>', on_mode_change)
 
-        ttk.Button(btn_row, text="更新到最新提交", command=self.update_to_latest, style='Secondary.TButton').pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(btn_row, text="切换到此提交", command=self.checkout_selected_commit, style='Secondary.TButton').pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(btn_row, text="刷新历史", command=self.refresh_git_info, style='Secondary.TButton').pack(side=tk.LEFT, padx=(0, 8))
+        # 保存按钮引用，便于更新过程中禁用/启用
+        self.update_latest_button = ttk.Button(btn_row, text="更新到 master 最新提交", command=self.update_to_latest, style='Secondary.TButton')
+        self.update_latest_button.pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(btn_row, text="切换到所选提交", command=self.checkout_selected_commit, style='Secondary.TButton').pack(side=tk.LEFT, padx=(0, 8))
+        # 保存“刷新历史（远端）”按钮引用，并改名
+        self.refresh_history_button = ttk.Button(btn_row, text="刷新提交历史（远端）", command=lambda: self.refresh_git_info(force_fetch=True), style='Secondary.TButton')
+        self.refresh_history_button.pack(side=tk.LEFT, padx=(0, 8))
 
         history_card = ttk.Frame(parent, style='Card.TFrame', padding=12)
         history_card.pack(fill=tk.BOTH, expand=True)
         ttk.Label(history_card, text="提交历史",
                 font=('Microsoft YaHei', 13, 'bold')).pack(anchor='w', pady=(0, 8))
+        # 在“提交历史”标题后添加加载状态指示（获取中/刷新中）
+        try:
+            self.history_status_var = tk.StringVar(value="")
+            self.history_status_label = ttk.Label(history_card, textvariable=self.history_status_var, style='Help.TLabel')
+            self.history_status_label.pack(anchor='w', pady=(0, 6))
+        except Exception:
+            self.history_status_var = None
 
         columns = ('hash', 'date', 'author', 'message')
         self.commit_tree = ttk.Treeview(history_card, columns=columns,
@@ -384,7 +395,24 @@ class VersionManager:
         return None
 
     # ---------- 信息刷新 ----------
-    def refresh_git_info(self):
+    def refresh_git_info(self, force_fetch: bool = False):
+        # 若为用户显式触发的远端刷新，则给出“刷新中…”状态并禁用按钮
+        if force_fetch:
+            try:
+                self.current_update_status_text = "（刷新中…）"
+                base_commit = self.current_commit or "检查中..."
+                self._after(lambda: self.current_commit_var and self.current_commit_var.set(f"{base_commit}{self.current_update_status_text}"))
+                if hasattr(self, 'refresh_history_button'):
+                    self.refresh_history_button.config(state='disabled')
+            except Exception:
+                pass
+        # 进入刷新流程时更新“提交历史”加载状态指示
+        try:
+            if getattr(self, 'history_status_var', None):
+                text = "正在从远端刷新提交历史…" if force_fetch else "正在获取提交历史…"
+                self._after(lambda: self.history_status_var.set(text))
+        except Exception:
+            pass
         def worker():
             try:
                 if not is_git_repo(self.comfyui_path):
@@ -414,58 +442,64 @@ class VersionManager:
                 # 先设置基础的当前提交文本（状态稍后补充）
                 self._after(lambda: self.current_commit_var and self.current_commit_var.set(self.current_commit or commit))
 
-                # 远端最新提交：优先 fetch 再基于 origin/<branch> 对比
+                # 远端最新提交：优先使用 ls-remote（轻量网络查询），失败再回退到本地远端引用对比
                 # 若分离HEAD，则使用默认分支；否则使用当前分支
                 query_branch = branch if branch else (self.get_default_branch() or "main")
                 remote_hash_short = ""
                 status_text = ""
                 if query_branch:
-                    # 1) fetch 更新远端引用
-                    try:
-                        target_remote_url = None
-                        if self.proxy_mode_var and self.proxy_mode_var.get() != 'none':
-                            try:
-                                origin_url = self.get_remote_url()
-                                target_remote_url = self.compute_proxied_url(origin_url)
-                            except Exception:
-                                target_remote_url = None
-                        if target_remote_url:
-                            self.run_git_command(['fetch', '--prune', target_remote_url])
-                        else:
-                            self.run_git_command(['fetch', '--all', '--prune'])
-                    except Exception:
-                        pass
-
-                    # 2) 基于本地的远端引用比较（更稳健，避免直接网络查询失败）
-                    r_remote_ref = self.run_git_command(['rev-parse', '--short', f'refs/remotes/origin/{query_branch}'])
-                    if r_remote_ref and r_remote_ref.returncode == 0 and r_remote_ref.stdout.strip():
-                        remote_hash_short = r_remote_ref.stdout.strip()
-                        if self.current_commit and remote_hash_short.startswith(self.current_commit):
-                            status_text = "（已是最新）"
-                        else:
-                            status_text = "（可更新）"
-                    else:
-                        # 3) 回退到 ls-remote 查询（用于极端情况下）
-                        target = 'origin'
+                    # 如果用户点击“刷新历史”，允许一次性强制获取远端（更新远端引用与提交对象）
+                    if force_fetch:
                         try:
+                            target = 'origin'
+                            # 在有代理的情况下，使用 URL fetch 并显式 refspec 写入 origin 跟踪分支
                             if self.proxy_mode_var and self.proxy_mode_var.get() != 'none':
                                 origin_url = self.get_remote_url()
                                 proxied = self.compute_proxied_url(origin_url)
                                 if proxied:
+                                    # 仅同步当前分支的远端引用（更快），并带上 tags
+                                    self.run_git_command(['fetch', '--prune', proxied, f'+refs/heads/{query_branch}:refs/remotes/origin/{query_branch}', '--tags'])
                                     target = proxied
+                            else:
+                                # 直接使用 origin 名称，更新远端跟踪分支与 tags
+                                self.run_git_command(['fetch', '--prune', 'origin', '--tags'])
+                            try:
+                                logging.getLogger("comfyui_launcher").info("刷新历史: 已强制fetch target=%s branch=%s", target, query_branch)
+                            except Exception:
+                                pass
                         except Exception:
+                            # fetch 失败不阻塞后续轻量查询
                             pass
-                        r_remote = self.run_git_command(['ls-remote', target, f'refs/heads/{query_branch}'])
-                        if r_remote and r_remote.returncode == 0 and r_remote.stdout.strip():
-                            line = r_remote.stdout.strip().split('\n')[0]
-                            parts = line.split('\t')
-                            if parts and parts[0]:
-                                remote_hash = parts[0]
-                                remote_hash_short = remote_hash[:8]
-                                if self.current_commit and remote_hash.startswith(self.current_commit):
-                                    status_text = "（已是最新）"
-                                else:
-                                    status_text = "（可更新）"
+                    # 1) 轻量：优先直接查询远端分支最新提交（不更新本地引用）
+                    target = 'origin'
+                    try:
+                        if self.proxy_mode_var and self.proxy_mode_var.get() != 'none':
+                            origin_url = self.get_remote_url()
+                            proxied = self.compute_proxied_url(origin_url)
+                            if proxied:
+                                target = proxied
+                    except Exception:
+                        pass
+                    r_remote = self.run_git_command(['ls-remote', target, f'refs/heads/{query_branch}'])
+                    if r_remote and r_remote.returncode == 0 and r_remote.stdout.strip():
+                        line = r_remote.stdout.strip().split('\n')[0]
+                        parts = line.split('\t')
+                        if parts and parts[0]:
+                            remote_hash = parts[0]
+                            remote_hash_short = remote_hash[:8]
+                            if self.current_commit and remote_hash.startswith(self.current_commit):
+                                status_text = "（已是最新）"
+                            else:
+                                status_text = "（可更新）"
+                    else:
+                        # 2) 回退：使用本地远端引用进行比较（无需 fetch）
+                        r_remote_ref = self.run_git_command(['rev-parse', '--short', f'refs/remotes/origin/{query_branch}'])
+                        if r_remote_ref and r_remote_ref.returncode == 0 and r_remote_ref.stdout.strip():
+                            remote_hash_short = r_remote_ref.stdout.strip()
+                            if self.current_commit and remote_hash_short.startswith(self.current_commit):
+                                status_text = "（已是最新）"
+                            else:
+                                status_text = "（可更新）"
                         else:
                             # 查询失败则不标注状态
                             try:
@@ -486,10 +520,20 @@ class VersionManager:
                 self.current_update_status_text = status_text
                 self._after(lambda: self.current_commit_var and self.current_commit_var.set(f"{self.current_commit or commit}{status_text}"))
 
-                # 提交历史（始终展示远端分支的提交列表，即使当前处于某个提交/分离HEAD）
+                # 提交历史展示策略：
+                # - 用户点击“刷新历史”时，优先展示远端跟踪分支（需要fetch过）；
+                # - 其它场景下，优先展示当前本地分支；若不可用再回退到远端跟踪分支。
                 log_ref = None
                 if query_branch:
-                    log_ref = f'refs/remotes/origin/{query_branch}'
+                    if force_fetch:
+                        log_ref = f'refs/remotes/origin/{query_branch}'
+                    else:
+                        # 优先本地分支（更轻量，避免不必要的网络交互）
+                        r_has_local = self.run_git_command(['rev-parse', '--verify', query_branch])
+                        if r_has_local and r_has_local.returncode == 0:
+                            log_ref = query_branch
+                        else:
+                            log_ref = f'refs/remotes/origin/{query_branch}'
                 else:
                     # 兜底：尝试 origin/HEAD 指向的分支
                     try:
@@ -524,6 +568,20 @@ class VersionManager:
                 print("获取Git信息失败:", e)
                 try:
                     logging.getLogger("comfyui_launcher").exception("获取Git信息失败")
+                except Exception:
+                    pass
+            finally:
+                # 刷新结束：恢复按钮与状态
+                if force_fetch:
+                    try:
+                        if hasattr(self, 'refresh_history_button'):
+                            self._after(lambda: self.refresh_history_button.config(state='normal'))
+                    except Exception:
+                        pass
+                # 清除“提交历史”加载状态指示
+                try:
+                    if getattr(self, 'history_status_var', None):
+                        self._after(lambda: self.history_status_var.set(""))
                 except Exception:
                     pass
         # 正常情况下也启动刷新线程（避免仅在异常时启动导致卡在“检查中...”）
@@ -584,7 +642,7 @@ class VersionManager:
 
     # ---------- 更新 / 切换 ----------
     def update_to_latest(self, confirm: bool = True, notify: bool = True):
-        """更新到当前分支（或默认分支）最新提交。"""
+        """更新到 master 分支最新提交（若不存在则回退默认分支）。"""
         try:
             logging.getLogger("comfyui_launcher").info("开始更新到最新: path=%s", str(self.comfyui_path))
         except Exception:
@@ -599,35 +657,58 @@ class VersionManager:
 
         result_status = {"component": "core", "updated": None, "branch": None, "error": None}
 
+        # 开始更新时的UI提示：置为“更新中…”，并禁用按钮，避免重复点击
+        def _on_start():
+            try:
+                self.current_update_status_text = "（更新中…）"
+                if self.current_commit_var:
+                    cur = self.current_commit or "未知"
+                    self.current_commit_var.set(f"{cur}（更新中…）")
+                if getattr(self, 'update_latest_button', None):
+                    self.update_latest_button.configure(state='disabled')
+            except Exception:
+                pass
+
+        def _on_finish():
+            try:
+                # 恢复按钮
+                if getattr(self, 'update_latest_button', None):
+                    self.update_latest_button.configure(state='normal')
+                # 更新完成后刷新主界面版本信息
+                if hasattr(self.parent, 'get_version_info'):
+                    try:
+                        self.parent.get_version_info(scope='core_only')
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         def worker():
             try:
-                # 判断是否分离 HEAD
-                branch_r = self.run_git_command(['branch', '--show-current'])
-                branch = branch_r.stdout.strip() if branch_r and branch_r.returncode == 0 else ""
-                try:
-                    logging.getLogger("comfyui_launcher").info("当前分支解析: branch=%s", branch or "<detached>")
-                except Exception:
-                    pass
-                if not branch:
-                    # 分离 HEAD -> 找默认分支
-                    default_branch = self.get_default_branch()
-                    if not default_branch:
-                        self._after(lambda: messagebox.showerror("错误", "无法确定默认分支"))
-                        try:
-                            logging.getLogger("comfyui_launcher").error("无法确定默认分支")
-                        except Exception:
-                            pass
-                        return
-                    # 切回默认分支
-                    co = self.run_git_command(['checkout', default_branch])
-                    if not co or co.returncode != 0:
-                        self._after(lambda: messagebox.showerror("错误", f"切换到 {default_branch} 失败: {co.stderr if co else ''}"))
-                        try:
-                            logging.getLogger("comfyui_launcher").error("切换默认分支失败: branch=%s, rc=%s, stderr=%s", default_branch, getattr(co, 'returncode', 'N/A'), getattr(co, 'stderr', ''))
-                        except Exception:
-                            pass
-                        return
-                    branch = default_branch
+                # 固定更新目标为 master；若不存在则回退到默认分支
+                target_branch = 'master'
+                # 确保本地存在并检出目标分支
+                r_exist_master = self.run_git_command(['rev-parse', '--verify', 'master'])
+                if not r_exist_master or r_exist_master.returncode != 0:
+                    # 回退到默认分支
+                    target_branch = self.get_default_branch() or 'main'
+                # 检出目标分支（若当前不在该分支）
+                r_current = self.run_git_command(['branch', '--show-current'])
+                current_branch = r_current.stdout.strip() if r_current and r_current.returncode == 0 else ''
+                if current_branch != target_branch:
+                    co = self.run_git_command(['checkout', target_branch])
+                    if (not co) or co.returncode != 0:
+                        # 若检出失败，尝试基于远端创建追踪分支
+                        co2 = self.run_git_command(['checkout', '-b', target_branch, f'origin/{target_branch}'])
+                        if (not co2) or co2.returncode != 0:
+                            self._after(lambda: messagebox.showerror("错误", f"切换到 {target_branch} 失败: {(co and co.stderr) or (co2 and co2.stderr) or ''}"))
+                            self._after(_on_finish)
+                            try:
+                                logging.getLogger("comfyui_launcher").error("切换目标分支失败: branch=%s, rc1=%s rc2=%s", target_branch, getattr(co, 'returncode', 'N/A'), getattr(co2, 'returncode', 'N/A'))
+                            except Exception:
+                                pass
+                            return
+                branch = target_branch
 
                 # fetch & pull（支持代理）
                 # 诊断：更新前记录本地标签与当前提交
@@ -676,6 +757,7 @@ class VersionManager:
                     fetch = self.run_git_command(['fetch', '--all', '--prune'])
                 if not fetch or fetch.returncode != 0:
                     self._after(lambda: messagebox.showerror("错误", f"fetch失败: {fetch.stderr if fetch else ''}"))
+                    self._after(_on_finish)
                     try:
                         logging.getLogger("comfyui_launcher").error("fetch失败: rc=%s, stderr=%s", getattr(fetch, 'returncode', 'N/A'), getattr(fetch, 'stderr', ''))
                     except Exception:
@@ -743,6 +825,7 @@ class VersionManager:
                         logging.getLogger("comfyui_launcher").error("pull失败: branch=%s, rc=%s, stderr=%s", branch, getattr(pull, 'returncode', 'N/A'), getattr(pull, 'stderr', ''))
                     except Exception:
                         pass
+                    self._after(_on_finish)
                     return
 
                 # 根据 git pull 输出区分是否实际发生更新
@@ -756,10 +839,8 @@ class VersionManager:
                         actually_updated = False
                 # 所有 UI 更新必须在主线程执行，以免无反馈
                 if notify:
-                    if actually_updated:
-                        self._after(lambda: messagebox.showinfo("成功", f"已更新到最新提交（{branch}）"))
-                    else:
-                        self._after(lambda: messagebox.showinfo("成功", f"已是最新，无需更新（{branch}）"))
+                    # 为避免“无需更新”的困惑，统一提示为“已更新到 <branch> 最新提交”
+                    self._after(lambda: messagebox.showinfo("成功", f"已更新到 {branch} 最新提交"))
                 else:
                     try:
                         result_status["updated"] = bool(actually_updated)
@@ -767,6 +848,7 @@ class VersionManager:
                     except Exception:
                         pass
                 self._after(self.refresh_git_info)
+                self._after(_on_finish)
                 try:
                     logging.getLogger("comfyui_launcher").info("更新到最新完成: branch=%s", branch)
                 except Exception:
@@ -801,9 +883,12 @@ class VersionManager:
                     logging.getLogger("comfyui_launcher").exception("更新到最新异常")
                 except Exception:
                     pass
+                self._after(_on_finish)
 
         if confirm:
-            if messagebox.askyesno("确认", "确定更新到当前分支最新提交吗？"):
+            # 仅在用户确认后才切换到“更新中…”状态并禁用按钮
+            if messagebox.askyesno("确认", "确定更新到 master 分支最新提交吗？"):
+                self._after(_on_start)
                 threading.Thread(target=worker, daemon=True).start()
                 try:
                     logging.getLogger("comfyui_launcher").info("已确认更新，启动后台线程")
@@ -811,7 +896,9 @@ class VersionManager:
                     pass
         else:
             # 在批量更新的后台线程中同步执行，避免额外弹出确认框
+            self._after(_on_start)
             worker()
+            self._after(_on_finish)
             return result_status
 
     # ---------- 代理与配置 ----------
@@ -858,8 +945,13 @@ class VersionManager:
                 cfg = parent_cfg or {}
                 if 'proxy_settings' not in cfg:
                     cfg['proxy_settings'] = {}
-                cfg['proxy_settings']['git_proxy_mode'] = self.proxy_mode_var.get()
-                cfg['proxy_settings']['git_proxy_url'] = self.proxy_url_var.get()
+                mode = self.proxy_mode_var.get()
+                cfg['proxy_settings']['git_proxy_mode'] = mode
+                # 统一 gh-proxy 模式的域名，避免误填 ghproxy.com
+                if mode == 'gh-proxy':
+                    cfg['proxy_settings']['git_proxy_url'] = 'https://gh-proxy.com/'
+                else:
+                    cfg['proxy_settings']['git_proxy_url'] = self.proxy_url_var.get()
                 try:
                     setattr(self.parent, 'config', cfg)
                 except Exception:
@@ -880,8 +972,12 @@ class VersionManager:
                     data = {}
                 if 'proxy_settings' not in data:
                     data['proxy_settings'] = {}
-                data['proxy_settings']['git_proxy_mode'] = self.proxy_mode_var.get()
-                data['proxy_settings']['git_proxy_url'] = self.proxy_url_var.get()
+                mode = self.proxy_mode_var.get()
+                data['proxy_settings']['git_proxy_mode'] = mode
+                if mode == 'gh-proxy':
+                    data['proxy_settings']['git_proxy_url'] = 'https://gh-proxy.com/'
+                else:
+                    data['proxy_settings']['git_proxy_url'] = self.proxy_url_var.get()
                 try:
                     json.dump(data, open(cfg_path, 'w', encoding='utf-8'), indent=2, ensure_ascii=False)
                 except Exception:
@@ -913,14 +1009,22 @@ class VersionManager:
                 return ''
             if mode == 'none':
                 return ''
-            base = self.proxy_url_var.get().strip()
-            if not base:
-                return ''
+
+            # 规范化代理基址：
+            # - gh-proxy 模式强制使用官方域名，避免误填为 ghproxy.com
+            # - custom 模式使用用户填写的地址
+            if mode == 'gh-proxy':
+                base = 'https://gh-proxy.com/'
+            else:
+                base = (self.proxy_url_var.get() or '').strip()
+                if not base:
+                    return ''
+                if not base.endswith('/'):
+                    base += '/'
+
             # 仅对 GitHub 做代理前缀包裹
             url = self._ssh_to_https(origin_url)
             if 'github.com' in url:
-                if not base.endswith('/'):
-                    base = base + '/'
                 # 形如：https://gh-proxy.com/https://github.com/owner/repo.git
                 return f'{base}{url}'
             return ''

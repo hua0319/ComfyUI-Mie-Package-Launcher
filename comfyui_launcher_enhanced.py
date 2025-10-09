@@ -1215,6 +1215,7 @@ class ComfyUILauncherEnhanced:
             hover=self.COLORS["ACCENT_HOVER"],
             active=self.COLORS["ACCENT_ACTIVE"],
             radius=10,
+            font=("Microsoft YaHei", 11),
             command=self.reset_settings,
         )
         self.restore_defaults_btn.pack(anchor='e')
@@ -1350,6 +1351,7 @@ class ComfyUILauncherEnhanced:
             hover=self.COLORS["ACCENT_HOVER"],
             active=self.COLORS["ACCENT_ACTIVE"],
             radius=10,
+            font=("Microsoft YaHei", 11),
             command=self.perform_batch_update,
         )
         self.batch_update_btn.pack()
@@ -1359,14 +1361,85 @@ class ComfyUILauncherEnhanced:
 
     def _build_quick_links(self, container, path=None):
         c = self.COLORS
+        # 顶部一排：左侧路径，右侧“重设ComfyUI根目录”按钮
+        top_bar = tk.Frame(container, bg=self.CARD_BG)
+        top_bar.pack(fill=tk.X, padx=(4, 0), pady=(0, 6))
         if path:
-            self.path_label = tk.Label(
-                container,
-                text=f"路径: {Path(path).resolve()}",
-                bg=self.CARD_BG, fg=c["TEXT_MUTED"],
-                font=self.BODY_FONT
+            # 左侧：路径标题与值并排，标题样式与“批量更新”一致，值样式与“快速模式”一致
+            left_path = tk.Frame(top_bar, bg=self.CARD_BG)
+            left_path.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self.path_label_title = tk.Label(
+                left_path,
+                text="路径:",
+                bg=self.CARD_BG, fg=c["TEXT"],
+                font=self.INTERNAL_HEAD_LABEL_FONT
             )
-            self.path_label.pack(anchor='w', padx=(4, 0), pady=(0, 6))
+            self.path_label_title.pack(side=tk.LEFT, padx=(0, 8))
+            try:
+                path_resolved = str(Path(path).resolve())
+            except Exception:
+                path_resolved = str(path)
+            # 保存完整路径用于后续截断显示
+            self._path_full_text = path_resolved
+            self.path_value_var = tk.StringVar(value=path_resolved)
+            self.path_value_label = tk.Label(
+                left_path,
+                textvariable=self.path_value_var,
+                bg=self.CARD_BG, fg=c["TEXT"]
+                # 不指定字体，使用系统默认，与“快速模式”一致
+            )
+            self.path_value_label.pack(side=tk.LEFT)
+
+            # 记录布局引用，便于根据可用宽度动态截断
+            self._path_top_bar = top_bar
+            try:
+                self._path_label_font = tkfont.nametofont(self.path_value_label.cget("font"))
+            except Exception:
+                try:
+                    self._path_label_font = tkfont.nametofont("TkDefaultFont")
+                except Exception:
+                    self._path_label_font = None
+
+            # 将“重设ComfyUI根目录”按钮紧随具体路径值右侧
+            self.reset_root_btn = RoundedButton(
+                left_path,
+                text="重设ComfyUI根目录",
+                width=160,
+                height=36,
+                color=self.COLORS["ACCENT"],
+                hover=self.COLORS["ACCENT_HOVER"],
+                active=self.COLORS["ACCENT_ACTIVE"],
+                radius=10,
+                font=("Microsoft YaHei", 11),
+                command=self.reset_comfyui_path,
+            )
+            self.reset_root_btn.pack(side=tk.LEFT, padx=(12, 0))
+
+            # 绑定尺寸变化事件以动态更新截断文本，避免按钮被挤出
+            def _on_resize(_evt=None):
+                try:
+                    self._update_path_label_elide()
+                except Exception:
+                    pass
+            top_bar.bind('<Configure>', _on_resize)
+            self.root.after(0, _on_resize)
+        else:
+            # 若无路径信息，保持按钮在顶栏右侧作为回退布局
+            self.reset_root_btn = RoundedButton(
+                top_bar,
+                text="重设ComfyUI根目录",
+                width=160,
+                height=36,
+                color=self.COLORS["ACCENT"],
+                hover=self.COLORS["ACCENT_HOVER"],
+                active=self.COLORS["ACCENT_ACTIVE"],
+                radius=10,
+                font=("Microsoft YaHei", 11),
+                command=self.reset_comfyui_path,
+            )
+            self.reset_root_btn.pack(side=tk.RIGHT)
+
+        # 顶栏仅保留“重设ComfyUI根目录”，不再放置“工作流目录”按钮
 
         # 容器：自然高度的自适应网格（不强制滚动，高度随内容扩展）
         grid = tk.Frame(container, bg=self.CARD_BG)
@@ -1380,41 +1453,68 @@ class ComfyUILauncherEnhanced:
             ("输入目录", self.open_input_dir),
             ("输出目录", self.open_output_dir),
             ("插件目录", self.open_plugins_dir),
-            ("重设ComfyUI目录", self.reset_comfyui_path),
+            ("工作流目录", self.open_workflows_dir),
         ]:
-            if txt == '重设ComfyUI目录':
-                btn = RoundedButton(
-                    grid,
-                    text=txt,
-                    width=150,
-                    height=36,
-                    color=self.COLORS["ACCENT"],
-                    hover=self.COLORS["ACCENT_HOVER"],
-                    active=self.COLORS["ACCENT_ACTIVE"],
-                    radius=10,
-                    command=cmd,
-                )
-            else:
-                btn = ttk.Button(grid, text=txt, style='Secondary.TButton', command=cmd)
+            btn = ttk.Button(grid, text=txt, style='Secondary.TButton', command=cmd)
             self.quick_buttons.append(btn)
 
         def _relayout(_evt=None):
-            # 计算列数并网格布局（自动换行）
+            # 改为单行网格布局（不换行），同时压缩左右与上下间距
             try:
                 width = max(0, grid.winfo_width())
             except Exception:
                 width = 800
-            min_btn = 120  # 单按钮最小占位宽度（含左右间距）
-            cols = max(3, min(6, max(1, width // min_btn)))
+            cols = len(self.quick_buttons)
             for i, btn in enumerate(self.quick_buttons):
-                r, cidx = divmod(i, cols)
-                # 进一步压缩垂直间距，并使按钮在单元格内充分扩展
-                btn.grid(row=r, column=cidx, padx=6, pady=(4, 6), sticky='nsew')
+                # 全部放在第0行，确保单行显示
+                btn.grid(row=0, column=i, padx=4, pady=(2, 6), sticky='nsew')
             for ci in range(cols):
                 grid.grid_columnconfigure(ci, weight=1, uniform='quick')
 
         grid.bind('<Configure>', _relayout)
         self.root.after(0, _relayout)
+
+    def _truncate_middle(self, text: str, max_chars: int) -> str:
+        """以居中省略号的方式截断字符串到指定字符数。"""
+        try:
+            if not text or max_chars <= 0:
+                return ""
+            if len(text) <= max_chars:
+                return text
+            if max_chars <= 3:
+                return text[:max_chars]
+            keep = max_chars - 1  # 预留一个位置给省略号“…”
+            head = keep // 2
+            tail = keep - head
+            return text[:head] + "…" + text[-tail:]
+        except Exception:
+            return text
+
+    def _update_path_label_elide(self):
+        """根据可用宽度将路径文本进行中间截断，避免顶栏按钮被挤出。"""
+        try:
+            full = getattr(self, "_path_full_text", None) or (self.path_value_var.get() if hasattr(self, 'path_value_var') else "")
+            # 计算可用于显示路径的像素宽度：顶栏总宽度 - 标题宽度 - 按钮宽度 - 余量
+            top_w = self._path_top_bar.winfo_width() if hasattr(self, '_path_top_bar') else 0
+            title_w = self.path_label_title.winfo_width() if hasattr(self, 'path_label_title') else 0
+            btn_w = self.reset_root_btn.winfo_width() if hasattr(self, 'reset_root_btn') else 0
+            # 预留边距与间距（标题右侧8px，按钮左侧12px等），综合设置为 40px
+            available_px = max(60, top_w - title_w - btn_w - 40)
+            # 根据字体估算最大字符数（使用“M”作宽度参考）
+            font_obj = getattr(self, '_path_label_font', None)
+            if font_obj:
+                m_w = max(7, int(font_obj.measure("M")))
+            else:
+                m_w = 9
+            max_chars = max(10, available_px // m_w)
+            self.path_value_var.set(self._truncate_middle(full, max_chars))
+        except Exception:
+            # 回退：不截断
+            try:
+                if hasattr(self, 'path_value_var'):
+                    self.path_value_var.set(full)
+            except Exception:
+                pass
 
     # ---------- Version / About ----------
     def build_version_tab(self, parent):
@@ -1606,22 +1706,227 @@ class ComfyUILauncherEnhanced:
             self.logger.info("尝试停止 ComfyUI 进程")
         except Exception:
             pass
+        killed = False
+        # 1) 优先停止当前已跟踪的进程
         if getattr(self, "comfyui_process", None) and self.comfyui_process.poll() is None:
             try:
                 self.comfyui_process.terminate()
                 self.comfyui_process.wait(timeout=5)
+                killed = True
             except subprocess.TimeoutExpired:
-                self.comfyui_process.kill()
+                try:
+                    self.comfyui_process.kill()
+                    killed = True
+                except Exception as e:
+                    messagebox.showerror("错误", f"停止失败: {e}")
             except Exception as e:
                 messagebox.showerror("错误", f"停止失败: {e}")
-        self.big_btn.set_state("idle")
-        self.big_btn.set_text("一键启动")
+        else:
+            # 2) 未跟踪到句柄：根据端口查找并强制终止对应进程
+            port = (self.custom_port.get() or "8188").strip()
+            pids = self._find_pids_by_port_safe(port)
+            if pids:
+                # 仅筛选识别为 ComfyUI 的进程，避免误杀其它程序
+                comfy_pids = [pid for pid in pids if self._is_comfyui_pid(pid)]
+                if comfy_pids:
+                    try:
+                        self._kill_pids(comfy_pids)
+                        killed = True
+                    except Exception as e:
+                        messagebox.showerror("错误", f"强制停止失败: {e}")
+                else:
+                    messagebox.showwarning(
+                        "警告",
+                        "检测到端口占用，但未识别为 ComfyUI 进程，已取消强制停止。\n\n"
+                        "如端口被其它程序占用，请修改 ComfyUI 端口或手动关闭该程序。"
+                    )
+            else:
+                messagebox.showwarning("警告", f"未找到端口 {port} 上运行的进程")
+
+        # 根据结果刷新按钮
+        if killed:
+            self.big_btn.set_state("idle")
+            self.big_btn.set_text("一键启动")
+            self.comfyui_process = None
+        else:
+            # 若仍被判定为运行中，保持“停止”以避免误导
+            try:
+                if self._is_http_reachable():
+                    self.big_btn.set_state("running")
+                    self.big_btn.set_text("停止")
+                else:
+                    self.big_btn.set_state("idle")
+                    self.big_btn.set_text("一键启动")
+            except Exception:
+                self.big_btn.set_state("idle")
+                self.big_btn.set_text("一键启动")
+
+    def _find_pids_by_port_safe(self, port_str):
+        # 解析端口并通过 psutil 或 netstat 查找 PID 列表
+        try:
+            port = int(port_str)
+        except Exception:
+            return []
+        # 优先使用 psutil
+        try:
+            import psutil  # type: ignore
+            pids = set()
+            try:
+                for conn in psutil.net_connections(kind='inet'):
+                    try:
+                        if conn.laddr and conn.laddr.port == port:
+                            if conn.status in ('LISTEN', 'ESTABLISHED'):  # 监听或连接中
+                                if conn.pid:
+                                    pids.add(conn.pid)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            if pids:
+                return list(pids)
+        except Exception:
+            pass
+        # 回退到 netstat 解析（Windows）
+        try:
+            import subprocess
+            import re
+            cmd = ["netstat", "-ano"]
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            if r.returncode == 0 and r.stdout:
+                pids = set()
+                pattern = re.compile(rf"^\s*TCP\s+[^:]+:{port}\s+.*?\s+(\d+)\s*$", re.IGNORECASE)
+                for line in r.stdout.splitlines():
+                    m = pattern.match(line)
+                    if m:
+                        try:
+                            pids.add(int(m.group(1)))
+                        except Exception:
+                            pass
+                # 也匹配 UDP（少见，但兜底）
+                pattern_udp = re.compile(rf"^\s*UDP\s+[^:]+:{port}\s+.*?\s+(\d+)\s*$", re.IGNORECASE)
+                for line in r.stdout.splitlines():
+                    m = pattern_udp.match(line)
+                    if m:
+                        try:
+                            pids.add(int(m.group(1)))
+                        except Exception:
+                            pass
+                return list(pids)
+        except Exception:
+            pass
+        return []
+
+    def _is_comfyui_pid(self, pid: int) -> bool:
+        # 通过 cmdline/exe/cwd 多重特征判断是否为 ComfyUI 相关进程
+        try:
+            import psutil  # type: ignore
+            comfy_root = str(Path(self.config["paths"]["comfyui_path"]).resolve()).lower()
+            try:
+                p = psutil.Process(pid)
+                cmdline = " ".join(p.cmdline()).lower()
+            except Exception:
+                cmdline = ""
+            try:
+                exe = (p.exe() or "").lower()
+            except Exception:
+                exe = ""
+            try:
+                cwd = (p.cwd() or "").lower()
+            except Exception:
+                cwd = ""
+
+            # 关键特征：main.py、comfyui 字样、路径命中 ComfyUI 根目录
+            if comfy_root and (comfy_root in cmdline or comfy_root in exe or comfy_root in cwd):
+                return True
+            if ("main.py" in cmdline and ("comfyui" in cmdline or "windows-standalone-build" in cmdline)):
+                return True
+            if ("comfyui" in cmdline or "comfyui" in exe or "comfyui" in cwd):
+                return True
+        except Exception:
+            pass
+
+        # 回退：使用 wmic 获取命令行（在部分 Windows 环境可用）
+        if os.name == 'nt':
+            try:
+                import subprocess
+                comfy_root = str(Path(self.config["paths"]["comfyui_path"]).resolve()).lower()
+                r = subprocess.run([
+                    "wmic", "process", "where", f"ProcessId={pid}", "get", "CommandLine", "/format:list"
+                ], capture_output=True, text=True)
+                if r.returncode == 0 and r.stdout:
+                    out = r.stdout.lower()
+                    if ("comfyui" in out) or ("main.py" in out) or (comfy_root and comfy_root in out):
+                        return True
+            except Exception:
+                pass
+
+        return False
+
+    def _kill_pids(self, pids):
+        # 优先使用 psutil 优雅终止，失败则回退到 taskkill
+        killed_any = False
+        try:
+            import psutil  # type: ignore
+            for pid in pids:
+                try:
+                    p = psutil.Process(pid)
+                    p.terminate()
+                except Exception:
+                    pass
+            try:
+                psutil.wait_procs([psutil.Process(pid) for pid in pids], timeout=3)
+                killed_any = True
+            except Exception:
+                pass
+        except Exception:
+            pass
+        # 对未结束的进程使用 taskkill 强制终止（Windows）
+        if os.name == 'nt':
+            try:
+                for pid in pids:
+                    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True)
+                killed_any = True
+            except Exception:
+                pass
+        if not killed_any:
+            raise RuntimeError("无法终止目标进程")
+
+    def _is_http_reachable(self) -> bool:
+        # 通过端口探测判断 ComfyUI 是否仍在运行（即便由 Manager 重启）
+        try:
+            import urllib.request
+            port = (self.custom_port.get() or "8188").strip()
+            url = f"http://127.0.0.1:{port}/"
+            req = urllib.request.Request(url, headers={"User-Agent": "ComfyUI-Launcher"})
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                return 200 <= getattr(resp, 'status', 200) < 400
+        except Exception:
+            return False
+
+    def _refresh_running_status(self):
+        # 根据进程与端口探测结果统一刷新按钮状态
+        try:
+            running = False
+            if getattr(self, "comfyui_process", None) and self.comfyui_process.poll() is None:
+                running = True
+            else:
+                running = self._is_http_reachable()
+            if running:
+                self.big_btn.set_state("running")
+                self.big_btn.set_text("停止")
+            else:
+                self.big_btn.set_state("idle")
+                self.big_btn.set_text("一键启动")
+        except Exception:
+            pass
 
     def monitor_process(self):
         while True:
             try:
+                # 进程结束时，置空句柄并根据端口探测决定按钮显示
                 if getattr(self, "comfyui_process", None) and self.comfyui_process.poll() is not None:
-                    self.root.after(0, self.on_process_ended)
+                    self.comfyui_process = None
+                self.root.after(0, self._refresh_running_status)
                 threading.Event().wait(2)
             except:
                 break
@@ -1632,8 +1937,17 @@ class ComfyUILauncherEnhanced:
         except Exception:
             pass
         self.comfyui_process = None
-        self.big_btn.set_state("idle")
-        self.big_btn.set_text("一键启动")
+        # 根据端口探测决定显示“停止”或“一键启动”
+        try:
+            if self._is_http_reachable():
+                self.big_btn.set_state("running")
+                self.big_btn.set_text("停止")
+            else:
+                self.big_btn.set_state("idle")
+                self.big_btn.set_text("一键启动")
+        except Exception:
+            self.big_btn.set_state("idle")
+            self.big_btn.set_text("一键启动")
 
     # ---------- 目录 ----------
     def _open_dir(self, path: Path):
@@ -1663,6 +1977,19 @@ class ComfyUILauncherEnhanced:
     def open_input_dir(self): self._open_dir(Path(self.config["paths"]["comfyui_path"]).resolve() / "input")
     def open_output_dir(self): self._open_dir(Path(self.config["paths"]["comfyui_path"]).resolve() / "output")
     def open_plugins_dir(self): self._open_dir(Path(self.config["paths"]["comfyui_path"]).resolve() / "custom_nodes")
+
+    def open_workflows_dir(self):
+        # 工作流目录：ComfyUI/user/default/workflows
+        base = Path(self.config["paths"]["comfyui_path"]).resolve()
+        wf = base / "user" / "default" / "workflows"
+        try:
+            self.logger.info("打开工作流目录: %s", str(wf))
+        except Exception:
+            pass
+        if wf.exists():
+            os.startfile(str(wf))
+        else:
+            messagebox.showwarning("提示", "工作流文件夹尚未创建，需要保存至少一个工作流")
 
     def open_comfyui_web(self):
         url = f"http://127.0.0.1:{self.custom_port.get() or '8188'}"
@@ -1735,8 +2062,20 @@ class ComfyUILauncherEnhanced:
 
         # 更新路径标签
         try:
+            # 旧版本兼容：若仍存在单一标签
             if hasattr(self, 'path_label') and self.path_label.winfo_exists():
                 self.path_label.config(text=f"路径: {new_path}")
+        except Exception:
+            pass
+        try:
+            # 新版样式：更新完整路径并进行截断显示
+            if hasattr(self, 'path_value_var'):
+                self._path_full_text = str(new_path)
+                try:
+                    self._update_path_label_elide()
+                except Exception:
+                    # 若截断失败则回退为完整显示
+                    self.path_value_var.set(self._path_full_text)
         except Exception:
             pass
 
@@ -1845,84 +2184,8 @@ class ComfyUILauncherEnhanced:
                         pass
                 self.root.after(0, _update_git_controls)
 
-                # 是否需要刷新内核版本信息（仅当 scope 要求或被选中）
+                # 标记是否需要刷新内核版本信息（仅当 scope 要求或被选中）
                 core_needed = (scope == "all") or (scope == "core_only") or (scope == "selected" and self.update_core_var.get())
-                if core_needed and root.exists() and self.git_path:
-                    try:
-                        # 先尝试同步远端标签，确保本地 `describe` 能拿到最新版本标签
-                        try:
-                            target_url = None
-                            try:
-                                origin_url = self.version_manager.get_remote_url()
-                                target_url = self.version_manager.compute_proxied_url(origin_url) or origin_url
-                            except Exception:
-                                target_url = None
-                            fetch_args = [self.git_path, "fetch", "--tags"]
-                            if target_url:
-                                fetch_args.append(target_url)
-                            r_fetch_tags = run_hidden(fetch_args, cwd=str(root), capture_output=True, text=True, timeout=15)
-                            if r_fetch_tags and r_fetch_tags.returncode == 0:
-                                try:
-                                    self.logger.info("版本诊断: fetch tags 成功 url=%s", target_url or "origin")
-                                except Exception:
-                                    pass
-                            else:
-                                try:
-                                    self.logger.warning("版本诊断: fetch tags 失败 rc=%s stderr=%s", getattr(r_fetch_tags, 'returncode', 'N/A'), getattr(r_fetch_tags, 'stderr', ''))
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-
-                        r = run_hidden([self.git_path, "describe", "--tags", "--abbrev=0"],
-                                           cwd=str(root), capture_output=True, text=True, timeout=10)
-                        if r.returncode == 0:
-                            tag = r.stdout.strip()
-                            r2 = run_hidden([self.git_path, "rev-parse", "--short", "HEAD"],
-                                                cwd=str(root), capture_output=True, text=True, timeout=10)
-                            commit = r2.stdout.strip() if r2.returncode == 0 else ""
-                            # 追加诊断日志：记录本地标签与提交
-                            try:
-                                self.logger.info("版本诊断: local_tag=%s local_commit=%s path=%s", tag, commit, str(root))
-                            except Exception:
-                                pass
-                            # 追加诊断日志：列出本地最近的若干标签
-                            try:
-                                r_tags_local = run_hidden([self.git_path, "tag", "--list"],
-                                                          cwd=str(root), capture_output=True, text=True, timeout=10)
-                                if r_tags_local and r_tags_local.returncode == 0:
-                                    tags_all = [t.strip() for t in r_tags_local.stdout.splitlines() if t.strip()]
-                                    recent_local = ", ".join(tags_all[-5:]) if tags_all else "<none>"
-                                    self.logger.info("版本诊断: local_tags_recent=%s (count=%d)", recent_local, len(tags_all))
-                            except Exception:
-                                pass
-                            # 追加诊断日志：对比远端标签（经代理）
-                            try:
-                                target_url = None
-                                try:
-                                    origin_url = self.version_manager.get_remote_url()
-                                    target_url = self.version_manager.compute_proxied_url(origin_url) or origin_url
-                                except Exception:
-                                    target_url = None
-                                if target_url:
-                                    r_tags_remote = run_hidden([self.git_path, "ls-remote", "--tags", target_url],
-                                                                cwd=str(root), capture_output=True, text=True, timeout=15)
-                                    if r_tags_remote and r_tags_remote.returncode == 0:
-                                        # 取最后若干行（通常为最新标签）
-                                        lines = [ln for ln in r_tags_remote.stdout.splitlines() if ln.strip()]
-                                        recent_remote = ", ".join([ln.split("\t")[-1] for ln in lines[-5:]]) if lines else "<none>"
-                                        self.logger.info("版本诊断: remote_tags_recent=%s url=%s", recent_remote, target_url)
-                                    else:
-                                        self.logger.warning("版本诊断: 远端标签查询失败 rc=%s stderr=%s", getattr(r_tags_remote, 'returncode', 'N/A'), getattr(r_tags_remote, 'stderr', ''))
-                            except Exception:
-                                pass
-                            self.root.after(0, lambda t=tag, c=commit: self.comfyui_version.set(f"{t} ({c})"))
-                        else:
-                            self.root.after(0, lambda: self.comfyui_version.set("未找到"))
-                    except:
-                        self.root.after(0, lambda: self.comfyui_version.set("未找到"))
-                elif core_needed:
-                    self.root.after(0, lambda: self.comfyui_version.set("ComfyUI未找到"))
 
                 if scope == "all":
                     try:
@@ -2036,6 +2299,84 @@ class ComfyUILauncherEnhanced:
                                 self.root.after(0, lambda: self.template_version.set("未安装"))
                     except:
                         self.root.after(0, lambda: self.template_version.set("获取失败"))
+
+                # 最后刷新内核版本：内核较慢，置于末尾以提升整体响应
+                if core_needed and root.exists() and self.git_path:
+                    try:
+                        # 先尝试同步远端标签，确保本地 `describe` 能拿到最新版本标签
+                        try:
+                            target_url = None
+                            try:
+                                origin_url = self.version_manager.get_remote_url()
+                                target_url = self.version_manager.compute_proxied_url(origin_url) or origin_url
+                            except Exception:
+                                target_url = None
+                            fetch_args = [self.git_path, "fetch", "--tags"]
+                            if target_url:
+                                fetch_args.append(target_url)
+                            r_fetch_tags = run_hidden(fetch_args, cwd=str(root), capture_output=True, text=True, timeout=15)
+                            if r_fetch_tags and r_fetch_tags.returncode == 0:
+                                try:
+                                    self.logger.info("版本诊断: fetch tags 成功 url=%s", target_url or "origin")
+                                except Exception:
+                                    pass
+                            else:
+                                try:
+                                    self.logger.warning("版本诊断: fetch tags 失败 rc=%s stderr=%s", getattr(r_fetch_tags, 'returncode', 'N/A'), getattr(r_fetch_tags, 'stderr', ''))
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                        r = run_hidden([self.git_path, "describe", "--tags", "--abbrev=0"],
+                                           cwd=str(root), capture_output=True, text=True, timeout=10)
+                        if r.returncode == 0:
+                            tag = r.stdout.strip()
+                            r2 = run_hidden([self.git_path, "rev-parse", "--short", "HEAD"],
+                                                cwd=str(root), capture_output=True, text=True, timeout=10)
+                            commit = r2.stdout.strip() if r2.returncode == 0 else ""
+                            # 追加诊断日志：记录本地标签与提交
+                            try:
+                                self.logger.info("版本诊断: local_tag=%s local_commit=%s path=%s", tag, commit, str(root))
+                            except Exception:
+                                pass
+                            # 追加诊断日志：列出本地最近的若干标签
+                            try:
+                                r_tags_local = run_hidden([self.git_path, "tag", "--list"],
+                                                          cwd=str(root), capture_output=True, text=True, timeout=10)
+                                if r_tags_local and r_tags_local.returncode == 0:
+                                    tags_all = [t.strip() for t in r_tags_local.stdout.splitlines() if t.strip()]
+                                    recent_local = ", ".join(tags_all[-5:]) if tags_all else "<none>"
+                                    self.logger.info("版本诊断: local_tags_recent=%s (count=%d)", recent_local, len(tags_all))
+                            except Exception:
+                                pass
+                            # 追加诊断日志：对比远端标签（经代理）
+                            try:
+                                target_url = None
+                                try:
+                                    origin_url = self.version_manager.get_remote_url()
+                                    target_url = self.version_manager.compute_proxied_url(origin_url) or origin_url
+                                except Exception:
+                                    target_url = None
+                                if target_url:
+                                    r_tags_remote = run_hidden([self.git_path, "ls-remote", "--tags", target_url],
+                                                                cwd=str(root), capture_output=True, text=True, timeout=15)
+                                    if r_tags_remote and r_tags_remote.returncode == 0:
+                                        # 取最后若干行（通常为最新标签）
+                                        lines = [ln for ln in r_tags_remote.stdout.splitlines() if ln.strip()]
+                                        recent_remote = ", ".join([ln.split("\t")[-1] for ln in lines[-5:]]) if lines else "<none>"
+                                        self.logger.info("版本诊断: remote_tags_recent=%s url=%s", recent_remote, target_url)
+                                    else:
+                                        self.logger.warning("版本诊断: 远端标签查询失败 rc=%s stderr=%s", getattr(r_tags_remote, 'returncode', 'N/A'), getattr(r_tags_remote, 'stderr', ''))
+                            except Exception:
+                                pass
+                            self.root.after(0, lambda t=tag, c=commit: self.comfyui_version.set(f"{t} ({c})"))
+                        else:
+                            self.root.after(0, lambda: self.comfyui_version.set("未找到"))
+                    except:
+                        self.root.after(0, lambda: self.comfyui_version.set("未找到"))
+                elif core_needed:
+                    self.root.after(0, lambda: self.comfyui_version.set("ComfyUI未找到"))
             finally:
                 self._version_info_loading = False
 
@@ -2466,12 +2807,99 @@ class ComfyUILauncherEnhanced:
             pass
 
     def on_closing(self):
-        if getattr(self, "comfyui_process", None) and self.comfyui_process.poll() is None:
-            if messagebox.askyesno("确认", "ComfyUI 正在运行，是否停止并退出？"):
-                self.stop_comfyui()
-                self.root.destroy()
+        # 统一处理关闭时的 ComfyUI 清理：即使不是由本启动器启动，也尝试关闭
+        try:
+            running_tracked = getattr(self, "comfyui_process", None) and self.comfyui_process.poll() is None
+        except Exception:
+            running_tracked = False
+        # 端口可达则说明存在运行中的 ComfyUI（可能不是我们启动的）
+        externally_running = False
+        try:
+            externally_running = self._is_http_reachable()
+        except Exception:
+            pass
+
+        if running_tracked or externally_running:
+            # 加强提示：可选择关闭所有 ComfyUI 实例（包括外部启动的）
+            if messagebox.askyesno("确认", "检测到 ComfyUI 正在运行。是否关闭所有 ComfyUI 实例并退出？\n\n提示：即使不是由本启动器启动的 ComfyUI，也会尝试关闭。"):
+                try:
+                    # 优先正常停止当前跟踪的进程
+                    self.stop_comfyui()
+                    # 进一步扫描并尝试关闭其它可能的 ComfyUI 进程
+                    self.stop_all_comfyui_instances()
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        self.root.destroy()
+                    except Exception:
+                        pass
+            else:
+                # 用户选择不关闭，直接退出窗口
+                try:
+                    self.root.destroy()
+                except Exception:
+                    pass
         else:
-            self.root.destroy()
+            # 未检测到运行中的 ComfyUI，直接退出
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+
+    def stop_all_comfyui_instances(self) -> bool:
+        """尝试关闭所有检测到的 ComfyUI 实例（包括非本启动器启动的）。
+
+        返回 True 表示至少成功终止一个进程。
+        """
+        killed = False
+        pids = set()
+        # 1) 通过端口查找（当前自定义端口）
+        try:
+            port = (self.custom_port.get() or "8188").strip()
+            for pid in self._find_pids_by_port_safe(port):
+                try:
+                    if self._is_comfyui_pid(pid):
+                        pids.add(pid)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # 2) 通过进程枚举查找（可能是不同端口或手动启动）
+        try:
+            import psutil  # type: ignore
+            for p in psutil.process_iter(attrs=["pid"]):
+                pid = p.info.get("pid")
+                if not pid:
+                    continue
+                try:
+                    if self._is_comfyui_pid(int(pid)):
+                        pids.add(int(pid))
+                except Exception:
+                    pass
+        except Exception:
+            # 若无 psutil，可忽略此步骤（已有端口方法与回退的 taskkill）
+            pass
+        # 移除自身跟踪的句柄，避免重复
+        try:
+            if getattr(self, "comfyui_process", None) and self.comfyui_process.poll() is None:
+                pids.discard(self.comfyui_process.pid)
+        except Exception:
+            pass
+        # 统一终止
+        if pids:
+            try:
+                self._kill_pids(list(pids))
+                killed = True
+            except Exception:
+                # 继续尝试逐个终止以提升成功率
+                for pid in list(pids):
+                    try:
+                        self._kill_pids([pid])
+                        killed = True
+                    except Exception:
+                        pass
+        return killed
 
 
 if __name__ == "__main__":
