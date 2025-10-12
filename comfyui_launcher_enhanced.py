@@ -1556,50 +1556,152 @@ class ComfyUILauncherEnhanced:
 
 
     def build_about_tab(self, parent):
-        frame = tk.Frame(parent, bg=self.COLORS["BG"])
-        frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=30)
+        """
+        浅色主题（白底）版本（图标直接写在条目中，无额外常量）：
+        - GitHub 独立为“代码库”
+        - 新增“模型库”
+        - YouTube 与 B 站使用同款图标（🎬）
+        - 网盘使用 📁 图标
+        - 链接行浅灰底/蓝字，悬停更深；右键可复制链接
+        - 两列卡片式布局（窄窗口自动换行）
+        """
+        import os, webbrowser, tkinter as tk
+        from PIL import Image, ImageTk, ImageDraw
 
-        # 加载并居中图片
+        # 浅色配色
+        c = self.COLORS
+        BG = c.get("BG", "#ffffff")
+        TEXT = c.get("TEXT", "#1f2328")
+        MUTED = c.get("TEXT_MUTED", "#656d76")
+        ACCENT = c.get("ACCENT", "#0969da")
+        ACCENT_HOVER = c.get("ACCENT_HOVER", "#054da7")
+        PANEL = c.get("PANEL", "#ffffff")         # 卡片底色
+        BORDER = c.get("BORDER", "#d0d7de")       # 边框色
+        BTN_BG = c.get("BTN_BG", "#f6f8fa")       # 链接行底色
+        BTN_HOVER_BG = c.get("BTN_HOVER_BG", "#eef2f7")
+
+        root = parent.winfo_toplevel()
+
+        frame = tk.Frame(parent, bg=BG)
+        frame.pack(fill=tk.BOTH, expand=True, padx=36, pady=28)
+
+        # 顶部：头像 + 标题
+        header = tk.Frame(frame, bg=BG)
+        header.pack(fill=tk.X)
+
         img_path = os.path.join(os.path.dirname(__file__), "about_me.png")
-        try:
-            img = Image.open(img_path)
-            img = img.resize((96, 96))
-            photo = ImageTk.PhotoImage(img)
-            img_label = tk.Label(frame, image=photo, bg=self.COLORS["BG"])
-            img_label.image = photo
-            img_label.pack(pady=(0, 16))
-        except Exception as e:
-            tk.Label(frame, text=f"[头像加载失败]: {e}", bg=self.COLORS["BG"], fg="red").pack(pady=(0, 16))
 
-        # 昵称
+        def _round_avatar(path, size=96):
+            img = Image.open(path).convert("RGBA").resize((size, size), Image.LANCZOS)
+            mask = Image.new("L", (size, size), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
+            img.putalpha(mask)
+            return ImageTk.PhotoImage(img)
+
+        try:
+            photo = _round_avatar(img_path, 96)
+            img_label = tk.Label(header, image=photo, bg=BG)
+            img_label.image = photo
+            img_label.pack(pady=(0, 14))
+        except Exception as e:
+            tk.Label(header, text=f"[头像加载失败]: {e}", bg=BG, fg="#d1242f").pack(pady=(0, 14))
+
         tk.Label(
-            frame, text="黎黎原上咩",
-            bg=self.COLORS["BG"], fg=self.COLORS["TEXT"],
-            font=("Microsoft YaHei", 22, 'bold'),
-            anchor='center', justify='center'
+            header, text="黎黎原上咩",
+            bg=BG, fg=TEXT, font=("Microsoft YaHei", 22, "bold"),
+            anchor="center", justify="center"
         ).pack(fill=tk.X, pady=(0, 4))
 
-        # 个性签名
         tk.Label(
-            frame, text="未觉池塘春草梦，阶前梧叶已秋声",
-            bg=self.COLORS["BG"], fg=self.COLORS.get("TEXT_MUTED", "#A0A4AA"),
-            font=("Microsoft YaHei", 13, 'italic'),
-            anchor='center', justify='center'
-        ).pack(fill=tk.X, pady=(0, 12))
+            header, text="未觉池塘春草梦，阶前梧叶已秋声",
+            bg=BG, fg=MUTED, font=("Microsoft YaHei", 13, "italic"),
+            anchor="center", justify="center"
+        ).pack(fill=tk.X, pady=(0, 10))
 
-        # B站链接
-        def open_bilibili(event=None):
-            import webbrowser
-            webbrowser.open("https://space.bilibili.com/449342345")
+        # 分组与顺序：
+        # 主页 | 代码库
+        # 整合包 | 模型库
+        # 工作流库 | 知识库
+        sections = [
+            ("主页", [
+                ("🎬 哔哩哔哩（@黎黎原上咩）", "https://space.bilibili.com/449342345"),
+                ("🎬 YouTube（@SweetValberry）", "https://www.youtube.com/@SweetValberry"),
+            ]),
+            ("代码库", [
+                ("🐙 GitHub（@MieMieeeee）", "https://github.com/MieMieeeee"),
+            ]),
+            ("ComfyUI 整合包", [
+                ("📁 夸克网盘", "https://pan.quark.cn/s/4b98f758d6d4"),
+                ("📁 百度网盘", "https://pan.baidu.com/s/1V4Lflv97rFK0vFZzCUfHMg?pwd=cj89"),
+            ]),
+            ("模型库", [
+                ("📁 夸克网盘", "https://pan.quark.cn/s/3be6eb0d7f65"),
+            ]),
+            ("工作流库", [
+                ("📁 夸克网盘", "https://pan.quark.cn/s/59bafd8bf39d"),
+            ]),
+            ("知识库", [
+                ("📘 飞书 Wiki", "https://dcn8q5lcfe3s.feishu.cn/wiki/IYHAwFhLviZIHBk7C7XccuJBn3c"),
+            ]),
+        ]
 
-        link = tk.Label(
-            frame, text="https://space.bilibili.com/449342345",
-            bg=self.COLORS["BG"], fg="#2F6EF6",
-            font=("Microsoft YaHei", 13, 'underline'),
-            cursor="hand2", anchor='center', justify='center'
-        )
-        link.pack(fill=tk.X)
-        link.bind("<Button-1>", open_bilibili)
+        grid = tk.Frame(frame, bg=BG)
+        grid.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+
+        COLS = 2
+        for i in range(COLS):
+            grid.grid_columnconfigure(i, weight=1, uniform="sec")
+
+        def copy_to_clipboard(text: str):
+            try:
+                root.clipboard_clear()
+                root.clipboard_append(text)
+            except Exception:
+                pass
+
+        def make_link(parent, text, url):
+            link = tk.Label(
+                parent, text=text, bg=BTN_BG, fg=ACCENT,
+                font=("Microsoft YaHei", 12, "normal"),
+                cursor="hand2", anchor="w", justify="left", padx=10, pady=8
+            )
+            link.pack(fill=tk.X, pady=6)
+
+            def open_url(_=None, u=url):
+                try:
+                    webbrowser.open_new_tab(u)
+                except Exception:
+                    pass
+
+            link.bind("<Button-1>", open_url)
+            link.bind("<Return>", open_url)
+            link.configure(takefocus=1)
+
+            def on_enter(_):
+                link.configure(fg=ACCENT_HOVER, bg=BTN_HOVER_BG, font=("Microsoft YaHei", 12, "underline"))
+            def on_leave(_):
+                link.configure(fg=ACCENT, bg=BTN_BG, font=("Microsoft YaHei", 12, "normal"))
+
+            link.bind("<Enter>", on_enter)
+            link.bind("<Leave>", on_leave)
+
+            menu = tk.Menu(link, tearoff=0)
+            menu.add_command(label="复制链接", command=lambda u=url: copy_to_clipboard(u))
+            link.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
+            return link
+
+        def add_section(parent, title, items, row, col):
+            card = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
+            card.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
+            tk.Label(
+                card, text=title, bg=PANEL, fg=TEXT,
+                font=("Microsoft YaHei", 16, "bold"), anchor="w"
+            ).pack(fill=tk.X, padx=12, pady=(12, 6))
+            for name, url in items:
+                make_link(card, name, url)
+
+        for idx, (title, items) in enumerate(sections):
+            add_section(grid, title, items, row=idx // COLS, col=idx % COLS)
 
     # ---------- 批量状态 ----------
     def _refresh_batch_labels(self):
@@ -1696,6 +1798,34 @@ class ComfyUILauncherEnhanced:
                 pass
             try:
                 self.logger.info("环境变量(GITHUB_ENDPOINT): %s", env.get("GITHUB_ENDPOINT", ""))
+            except Exception:
+                pass
+            # 为 GitPython 指定 Git 可执行文件，优先使用整合包的便携 Git
+            try:
+                git_cmd = None
+                try:
+                    # 若之前已解析过，直接使用；否则尝试解析
+                    git_cmd = self.git_path if getattr(self, 'git_path', None) else None
+                except Exception:
+                    git_cmd = None
+                if not git_cmd:
+                    try:
+                        git_cmd, _src = self.resolve_git()
+                    except Exception:
+                        git_cmd = None
+                if git_cmd and git_cmd != 'git':
+                    # 设置 GitPython 专用环境变量
+                    env["GIT_PYTHON_GIT_EXECUTABLE"] = str(git_cmd)
+                    # 兼容某些脚本直接调用 git：将便携 Git 的 bin 目录置于 PATH 前侧
+                    try:
+                        git_bin = str(Path(git_cmd).resolve().parent)
+                        env["PATH"] = git_bin + os.pathsep + env.get("PATH", "")
+                    except Exception:
+                        pass
+                try:
+                    self.logger.info("环境变量(GIT_PYTHON_GIT_EXECUTABLE): %s", env.get("GIT_PYTHON_GIT_EXECUTABLE", ""))
+                except Exception:
+                    pass
             except Exception:
                 pass
             self.big_btn.set_state("starting")
