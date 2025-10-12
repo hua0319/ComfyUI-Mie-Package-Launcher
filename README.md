@@ -63,7 +63,8 @@ launcher/
 ├── requirements.txt             # 依赖列表
 ├── logger_setup.py              # 日志安装与级别控制（支持 is_debug 文件）
 ├── utils.py                     # 命令执行与日志输出（支持按行/字符截断）
-├── config.json                  # 启动器配置（含 show_debug_info 开关）
+├── assets/                      # 启动器图片资源（about_me.png / comfyui.png / rabbit.*）
+├── config.json                  # 启动器配置（已移除，启动器将使用默认配置）
 ├── is_debug                     # 可选：存在即开启调试模式
 └── README.md                   # 说明文档
 ```
@@ -77,7 +78,7 @@ launcher/
 
 ## 注意事项
 
-1. 启动器可在任意目录运行；首次或路径无效时会弹窗选择 ComfyUI 根目录并保存到 `launcher/config.json`。
+1. 启动器可在任意目录运行；首次或路径无效时会弹窗选择 ComfyUI 根目录。当前版本不再使用 `launcher/config.json`，将采用内置默认值或运行时选择保存。
 
 ## 兼容性
 

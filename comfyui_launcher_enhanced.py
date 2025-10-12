@@ -586,67 +586,206 @@ class ComfyUILauncherEnhanced:
 
     # ---------- 样式 ----------
     def setup_window(self):
-        self.root.title("ComfyUI启动器 - 黎黎原上咩")
-        self.root.geometry("1250x820")
-        self.root.minsize(1100, 700)
-        # 窗口图标：优先使用 rabbit.ico，适配 PyInstaller (sys._MEIPASS) 环境；失败则回退到 rabbit.png
         try:
-            base_paths = []
-            # 1) 运行时资源目录（PyInstaller）
             try:
-                base_paths.append(Path(getattr(sys, '_MEIPASS', '')))
+                self.logger.info("开始设置窗口样式")
             except Exception:
                 pass
-            # 2) 源码所在的 launcher 目录
+            self.root.title("ComfyUI启动器 - 黎黎原上咩")
+            self.root.geometry("1250x820")
+            self.root.minsize(1100, 700)
+            # 窗口图标：优先使用 rabbit.ico，适配 PyInstaller (sys._MEIPASS) 环境；失败则回退到 rabbit.png
             try:
-                base_paths.append(Path(__file__).resolve().parent)
-            except Exception:
-                pass
-            # 3) 项目根目录下的 launcher 目录
-            base_paths.append(Path('launcher').resolve())
-            # 4) 可执行文件所在目录
-            try:
-                base_paths.append(Path(sys.executable).resolve().parent)
-            except Exception:
-                pass
-
-            icon_candidates = []
-            for b in base_paths:
-                if b and b.exists():
-                    icon_candidates.append(b / 'rabbit.ico')
-
-            icon_set = False
-            for p in icon_candidates:
-                if p.exists():
+                # 可选：通过环境变量或文件跳过图标设置，便于快速定位卡顿
+                skip_icons_env = (os.environ.get("COMFYUI_LAUNCHER_SKIP_ICONS") or "").strip().lower() in ("1", "true", "yes", "on")
+                skip_icons_file = False
+                try:
+                    skip_icons_file = (Path.cwd() / "launcher" / "skip_icons").exists()
+                except Exception:
+                    pass
+                skip_icons = bool(skip_icons_env or skip_icons_file)
+                if skip_icons:
                     try:
-                        self.root.iconbitmap(str(p))
-                        icon_set = True
-                        break
-                    except:
+                        self.logger.info("样式阶段: 跳过窗口图标设置 (skip_icons=%s)", skip_icons)
+                    except Exception:
                         pass
-            if not icon_set:
-                png_candidates = []
-                for b in base_paths:
-                    if b and b.exists():
-                        png_candidates.append(b / 'rabbit.png')
-                for p in png_candidates:
-                    if p.exists():
+                else:
+                    try:
+                        self.logger.info("样式阶段: 准备收集图标候选路径")
+                    except Exception:
+                        pass
+                    base_paths = []
+                    # 1) 运行时资源目录（PyInstaller）
+                    try:
+                        base_paths.append(Path(getattr(sys, '_MEIPASS', '')))
+                    except Exception:
+                        pass
+                    # 2) 源码所在的 launcher 目录
+                    try:
+                        base_paths.append(Path(__file__).resolve().parent)
+                    except Exception:
+                        pass
+                    # 3) 项目根目录下的 launcher 目录
+                    base_paths.append(Path('launcher').resolve())
+                    # 4) 可执行文件所在目录
+                    try:
+                        base_paths.append(Path(sys.executable).resolve().parent)
+                    except Exception:
+                        pass
+
+                    icon_candidates = []
+                    for b in base_paths:
+                        if b and b.exists():
+                            icon_candidates.append(b / 'assets' / 'rabbit.ico')
+                    try:
+                        self.logger.info("样式阶段: ICO候选列表=%s", 
+                                         ", ".join([str(p) for p in icon_candidates]))
+                    except Exception:
+                        pass
+
+                icon_set = False
+                # 默认禁用 iconbitmap 以规避部分环境下 .ico 触发的原生崩溃；可用开关强制启用
+                enable_ico_env = (os.environ.get("COMFYUI_LAUNCHER_ENABLE_ICO") or "").strip().lower() in ("1", "true", "yes", "on")
+                enable_ico_file = False
+                try:
+                    enable_ico_file = (Path.cwd() / "launcher" / "enable_ico").exists()
+                except Exception:
+                    pass
+                enable_ico = bool(enable_ico_env or enable_ico_file)
+                if not skip_icons and enable_ico:
+                    for p in icon_candidates:
+                        if p.exists():
+                            try:
+                                try:
+                                    self.logger.info("样式阶段: 尝试设置窗口图标(iconbitmap)=%s", str(p))
+                                except Exception:
+                                    pass
+                                self.root.iconbitmap(str(p))
+                                icon_set = True
+                                try:
+                                    self.logger.info("样式阶段: iconbitmap 设置成功")
+                                except Exception:
+                                    pass
+                                break
+                            except:
+                                pass
+                else:
+                    try:
+                        self.logger.info("样式阶段: 默认跳过 iconbitmap 设置 (enable_ico=%s)", enable_ico)
+                    except Exception:
+                        pass
+                if not icon_set and not skip_icons:
+                    png_candidates = []
+                    for b in base_paths:
+                        if b and b.exists():
+                            png_candidates.append(b / 'assets' / 'rabbit.png')
+                    try:
+                        self.logger.info("样式阶段: PNG候选列表=%s", 
+                                         ", ".join([str(p) for p in png_candidates]))
+                    except Exception:
+                        pass
+                    for p in png_candidates:
+                        if p.exists():
+                            try:
+                                try:
+                                    self.logger.info("样式阶段: 尝试设置窗口图标(iconphoto)=%s", str(p))
+                                except Exception:
+                                    pass
+                                self._icon_image = ImageTk.PhotoImage(file=str(p))
+                                self.root.iconphoto(True, self._icon_image)
+                                try:
+                                    self.logger.info("样式阶段: iconphoto 设置成功")
+                                except Exception:
+                                    pass
+                                break
+                            except:
+                                pass
+            except:
+                pass
+
+            # 安全创建样式并选择可用主题
+            try:
+                try:
+                    self.logger.info("样式阶段: 创建 ttk.Style()")
+                except Exception:
+                    pass
+                self.style = ttk.Style()
+                try:
+                    self.logger.info("样式阶段: ttk.Style 创建成功，当前主题=%s", self.style.theme_use())
+                except Exception:
+                    pass
+            except Exception:
+                # 若样式创建失败，记录异常并继续使用默认外观
+                try:
+                    self.logger.exception("创建 ttk.Style 失败，使用默认主题")
+                except Exception:
+                    pass
+                return
+
+            # 选择主题：优先使用 'clam'；不可用则保留默认主题
+            try:
+                themes = []
+                try:
+                    self.logger.info("样式阶段: 获取可用主题列表")
+                    themes = list(self.style.theme_names())
+                except Exception:
+                    themes = []
+                try:
+                    self.logger.info("样式阶段: 可用主题=%s", ", ".join(themes))
+                except Exception:
+                    pass
+                # 可选：通过环境变量或文件跳过主题切换（定位卡顿）
+                skip_theme_env = (os.environ.get("COMFYUI_LAUNCHER_SKIP_THEME") or "").strip().lower() in ("1", "true", "yes", "on")
+                skip_theme_file = False
+                try:
+                    skip_theme_file = (Path.cwd() / "launcher" / "skip_theme").exists()
+                except Exception:
+                    pass
+                skip_theme = bool(skip_theme_env or skip_theme_file)
+                if skip_theme:
+                    try:
+                        self.logger.info("样式阶段: 跳过主题切换 (skip_theme=%s)，当前主题=%s", skip_theme, self.style.theme_use())
+                    except Exception:
+                        pass
+                else:
+                    if "clam" in themes:
                         try:
-                            self._icon_image = ImageTk.PhotoImage(file=str(p))
-                            self.root.iconphoto(True, self._icon_image)
-                            break
-                        except:
+                            self.logger.info("样式阶段: 切换到 clam 主题")
+                            self.style.theme_use('clam')
+                            try:
+                                self.logger.info("样式阶段: 主题切换成功，当前主题=%s", self.style.theme_use())
+                            except Exception:
+                                pass
+                        except Exception:
+                            # 回退到默认主题
+                            try:
+                                self.logger.warning("切换到 'clam' 主题失败，保留默认主题")
+                            except Exception:
+                                pass
+                    else:
+                        # 主题不可用时给出提示但不终止
+                        try:
+                            self.logger.info("未检测到 'clam' 主题，保留默认主题：%s", self.style.theme_use())
+                        except Exception:
                             pass
-        except:
-            pass
-        self.style = ttk.Style()
-        self.style.theme_use('clam')
-        self.style.layout('Hidden.TNotebook.Tab', [])
-        try:
-            self.style.theme_use('clam')
-        except:
-            pass
-        self.COLORS = {
+            except Exception:
+                pass
+
+            # 隐藏辅助 Notebook 标签布局（若支持）
+            try:
+                try:
+                    self.logger.info("样式阶段: 设置 Hidden.TNotebook.Tab 布局为空")
+                except Exception:
+                    pass
+                self.style.layout('Hidden.TNotebook.Tab', [])
+                try:
+                    self.logger.info("样式阶段: Hidden.TNotebook.Tab 布局设置完成")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            self.COLORS = {
             "BG": "#FFFFFF",
             "SIDEBAR_BG": "#20252B",
             "SIDEBAR_ACTIVE": "#2D343C",
@@ -657,47 +796,69 @@ class ComfyUILauncherEnhanced:
             "ACCENT_ACTIVE": "#1F52BE",
             "BORDER": "#D0D5DB"
         }
-        self.root.configure(bg=self.COLORS["BG"])
-        try:
-            base = tkfont.nametofont("TkDefaultFont")
-            base.configure(family="Microsoft YaHei", size=11)
-            self.root.option_add("*Font", "TkDefaultFont")
-        except:
-            pass
-        s = self.style
-        c = self.COLORS
-        s.configure(".", background=c["BG"], foreground=c["TEXT"])
-        s.configure('TEntry', fieldbackground=c["BG"], bordercolor=c["BORDER"], lightcolor=c["ACCENT"])
-        s.map('TEntry', bordercolor=[('focus', c["ACCENT"])])
-        s.configure('TCombobox', fieldbackground=c["BG"], bordercolor=c["BORDER"])
-        s.map('TCombobox', bordercolor=[('focus', c["ACCENT"])])
+            self.root.configure(bg=self.COLORS["BG"])
+            try:
+                try:
+                    self.logger.info("样式阶段: 配置 TkDefaultFont")
+                except Exception:
+                    pass
+                base = tkfont.nametofont("TkDefaultFont")
+                base.configure(family="Microsoft YaHei", size=11)
+                self.root.option_add("*Font", "TkDefaultFont")
+                try:
+                    self.logger.info("样式阶段: TkDefaultFont 配置完成")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            s = self.style
+            c = self.COLORS
+            try:
+                self.logger.info("样式阶段: 执行样式配置与映射")
+            except Exception:
+                pass
+            s.configure(".", background=c["BG"], foreground=c["TEXT"]) 
+            s.configure('TEntry', fieldbackground=c["BG"], bordercolor=c["BORDER"], lightcolor=c["ACCENT"]) 
+            s.map('TEntry', bordercolor=[('focus', c["ACCENT"])])
+            s.configure('TCombobox', fieldbackground=c["BG"], bordercolor=c["BORDER"]) 
+            s.map('TCombobox', bordercolor=[('focus', c["ACCENT"])])
 
-        s.configure('Secondary.TButton',
-                    background=c["BG"], foreground=c["TEXT"],
-                    padding=(8, 4),
-                    borderwidth=1,
-                    bordercolor=c["BORDER"],
-                    font=("Microsoft YaHei", 10))
-        s.map('Secondary.TButton',
-              background=[('active', '#F4F6F8'), ('pressed', '#EDF0F3')],
-              bordercolor=[('focus', c["ACCENT"])])
+            s.configure('Secondary.TButton',
+                        background=c["BG"], foreground=c["TEXT"],
+                        padding=(8, 4),
+                        borderwidth=1,
+                        bordercolor=c["BORDER"],
+                        font=("Microsoft YaHei", 10))
+            s.map('Secondary.TButton',
+                  background=[('active', '#F4F6F8'), ('pressed', '#EDF0F3')],
+                  bordercolor=[('focus', c["ACCENT"])])
 
-        s.configure('Accent.TButton',
-                    background=c["ACCENT"],
-                    foreground="#FFFFFF",
-                    padding=(10, 6),
-                    borderwidth=0,
-                    font=("Microsoft YaHei", 11, 'bold'))
-        s.map('Accent.TButton',
-              background=[('active', c["ACCENT_HOVER"]), ('pressed', c["ACCENT_ACTIVE"])],
-              foreground=[('disabled', '#FFFFFFAA')])
+            s.configure('Accent.TButton',
+                        background=c["ACCENT"],
+                        foreground="#FFFFFF",
+                        padding=(10, 6),
+                        borderwidth=0,
+                        font=("Microsoft YaHei", 11, 'bold'))
+            s.map('Accent.TButton',
+                  background=[('active', c["ACCENT_HOVER"]), ('pressed', c["ACCENT_ACTIVE"])],
+                  foreground=[('disabled', '#FFFFFFAA')])
 
-        s.configure('Nav.TButton', background=c["SIDEBAR_BG"], foreground="#FFFFFF",
-                    padding=(14, 10), anchor='w', borderwidth=0, font=("Microsoft YaHei", 11))
-        s.map('Nav.TButton', background=[('active', c["SIDEBAR_ACTIVE"])])
-        s.configure('NavSelected.TButton', background=c["SIDEBAR_ACTIVE"],
-                    foreground="#FFFFFF", padding=(14, 10), anchor='w',
-                    borderwidth=0, font=("Microsoft YaHei", 11, 'bold'))
+            s.configure('Nav.TButton', background=c["SIDEBAR_BG"], foreground="#FFFFFF",
+                        padding=(14, 10), anchor='w', borderwidth=0, font=("Microsoft YaHei", 11))
+            s.map('Nav.TButton', background=[('active', c["SIDEBAR_ACTIVE"])])
+            s.configure('NavSelected.TButton', background=c["SIDEBAR_ACTIVE"],
+                        foreground="#FFFFFF", padding=(14, 10), anchor='w',
+                        borderwidth=0, font=("Microsoft YaHei", 11, 'bold'))
+            try:
+                self.logger.info("窗口样式设置完成")
+            except Exception:
+                pass
+        except Exception:
+            # 兜底：记录异常但不要让启动器崩溃
+            try:
+                self.logger.exception("setup_window 阶段发生异常，继续使用默认外观")
+            except Exception:
+                pass
 
     # ---------- 变量 ----------
     def setup_variables(self):
@@ -738,17 +899,28 @@ class ComfyUILauncherEnhanced:
         self.pypi_proxy_mode.trace_add("write", lambda *a: (self.save_config(), self.apply_pip_proxy_settings()))
         self.pypi_proxy_url.trace_add("write", lambda *a: (self.save_config(), self.apply_pip_proxy_settings()))
 
+        # 启动选项变更时持久化
         self.compute_mode.trace_add("write", lambda *a: self.save_config())
         self.use_fast_mode.trace_add("write", lambda *a: self.save_config())
         self.enable_cors.trace_add("write", lambda *a: self.save_config())
         self.listen_all.trace_add("write", lambda *a: self.save_config())
         self.custom_port.trace_add("write", lambda *a: self.save_config())
         self.extra_launch_args.trace_add("write", lambda *a: self.save_config())
-        # HF 镜像 URL（新增）
+
+        # HF 镜像 URL
         default_hf_url = proxy_cfg.get("hf_mirror_url", "https://hf-mirror.com")
         self.hf_mirror_url = tk.StringVar(value=default_hf_url)
         self.selected_hf_mirror.trace_add("write", lambda *a: self.save_config())
         self.hf_mirror_url.trace_add("write", lambda *a: self.save_config())
+
+    # 保护性获取 StringVar，确保界面构建阶段不会因变量未初始化而崩溃
+    def _ensure_stringvar(self, attr_name: str, default: str = "获取中…"):
+        v = getattr(self, attr_name, None)
+        if isinstance(v, tk.StringVar):
+            return v
+        v = tk.StringVar(value=default)
+        setattr(self, attr_name, v)
+        return v
 
     def load_config(self):
         try:
@@ -916,7 +1088,7 @@ class ComfyUILauncherEnhanced:
             anchor='center', justify='center'
         ).pack(fill=tk.X, pady=(4, 0))
         self.nav_buttons = {}
-        for key, label in [("launch", "🚀 启动与更新"), ("version", "🧬 内核版本管理"), ("about", "👤 关于我")]:
+        for key, label in [("launch", "🚀 启动与更新"), ("version", "🧬 内核版本管理"), ("about", "👤 关于我"), ("comfyui", "📚 关于ComfyUI")]:
             btn = ttk.Button(self.sidebar, text=label, style='Nav.TButton',
                              command=lambda k=key: self.select_tab(k))
             btn.pack(fill=tk.X, padx=8, pady=3)
@@ -953,21 +1125,24 @@ class ComfyUILauncherEnhanced:
         self.tab_frames = {
             "launch": tk.Frame(self.notebook, bg=c["BG"]),
             "version": tk.Frame(self.notebook, bg=c["BG"]),
+            "comfyui": tk.Frame(self.notebook, bg=c["BG"]),
             "about": tk.Frame(self.notebook, bg=c["BG"])
         }
         self.notebook.add(self.tab_frames["launch"], text="启动与更新")
         self.notebook.add(self.tab_frames["version"], text="内核版本管理")
         self.notebook.add(self.tab_frames["about"], text="关于我")
+        self.notebook.add(self.tab_frames["comfyui"], text="关于 ComfyUI")
 
         self.build_launch_tab(self.tab_frames["launch"])
         self.build_version_tab(self.tab_frames["version"])
         self.build_about_tab(self.tab_frames["about"])
+        self.build_about_comfyui(self.tab_frames["comfyui"])
 
         self.notebook.select(self.notebook.tabs()[0])
         self.current_tab_name = "launch"
 
     def select_tab(self, name):
-        tab_order = ["launch", "version", "about"]
+        tab_order = ["launch", "version", "about", "comfyui"]
         idx = tab_order.index(name)
         tabs = self.notebook.tabs()
         if idx < len(tabs):
@@ -1302,12 +1477,13 @@ class ComfyUILauncherEnhanced:
                  font=self.INTERNAL_HEAD_LABEL_FONT).pack(anchor='w')
         current_frame = tk.Frame(container, bg=self.CARD_BG)
         current_frame.pack(fill=tk.X, pady=(6, 0))
-        items = [("内核", self.comfyui_version),
-                 ("前端", self.frontend_version),
-                 ("模板库", self.template_version),
-                 ("Python", self.python_version),
-                 ("Torch", self.torch_version),
-                 ("Git", self.git_status)]
+        # 使用保护性变量获取，避免初始化早期因属性缺失导致异常
+        items = [("内核", self._ensure_stringvar('comfyui_version')),
+                 ("前端", self._ensure_stringvar('frontend_version')),
+                 ("模板库", self._ensure_stringvar('template_version')),
+                 ("Python", self._ensure_stringvar('python_version')),
+                 ("Torch", self._ensure_stringvar('torch_version')),
+                 ("Git", self._ensure_stringvar('git_status', default='检测中…'))]
         grid = tk.Frame(current_frame, bg=self.CARD_BG)
         grid.pack(fill=tk.X)
         for i, (lbl, var) in enumerate(items):
@@ -1549,10 +1725,217 @@ class ComfyUILauncherEnhanced:
             except Exception:
                 pass
 
+    # ---------- 资源解析 ----------
+    def _resolve_asset(self, filename: str) -> Path:
+        """从多个候选位置解析资源路径，兼容源码与 PyInstaller 环境。"""
+        candidates = []
+        try:
+            # 1) 运行时临时目录（PyInstaller）
+            candidates.append(Path(getattr(sys, '_MEIPASS', '')) / 'assets' / filename)
+        except Exception:
+            pass
+        try:
+            # 2) 源码所在的 launcher 目录
+            candidates.append(Path(__file__).resolve().parent / 'assets' / filename)
+        except Exception:
+            pass
+        try:
+            # 3) 项目根目录下的 launcher 目录
+            candidates.append(Path('launcher').resolve() / 'assets' / filename)
+        except Exception:
+            pass
+        try:
+            # 4) 可执行文件所在目录（打包场景）
+            candidates.append(Path(sys.executable).resolve().parent / 'assets' / filename)
+        except Exception:
+            pass
+        try:
+            # 5) 当前工作目录下的 launcher 目录
+            candidates.append(Path.cwd() / 'launcher' / 'assets' / filename)
+        except Exception:
+            pass
+        # 记录候选
+        try:
+            self.logger.info("资源解析: %s 候选=%s", filename, ", ".join([str(p) for p in candidates]))
+        except Exception:
+            pass
+        for p in candidates:
+            try:
+                if p.exists():
+                    return p
+            except Exception:
+                pass
+        return candidates[0] if candidates else Path(filename)
+
+    def _resolve_asset_variants(self, filenames):
+        """按顺序尝试多个文件名变体，返回第一个存在的路径。"""
+        chosen = None
+        for name in filenames:
+            try:
+                p = self._resolve_asset(name)
+                exists = False
+                try:
+                    exists = p.exists()
+                except Exception:
+                    pass
+                try:
+                    self.logger.info("资源解析: 变体尝试 %s -> %s (exists=%s)", name, str(p), exists)
+                except Exception:
+                    pass
+                if exists:
+                    chosen = p
+                    break
+            except Exception:
+                pass
+        return chosen if chosen else self._resolve_asset(filenames[0])
+
     # ---------- Version / About ----------
     def build_version_tab(self, parent):
-        self.version_container = tk.Frame(parent, bg=self.COLORS["BG"])
+        self.version_container = tk.Frame(parent, bg=self.COLORS["BG"]) 
         self.version_container.pack(fill=tk.BOTH, expand=True, padx=40, pady=30)
+
+
+    def build_about_comfyui(self, parent):
+        """
+        ComfyUI Hero 页面（白底）
+        - 顶部：comfyui.svg 大 Logo（自动回退 PNG/文字）
+        - 中部：两行标语
+        - 底部：四个大按钮（2×2），分别链接 GitHub / 博客 / Wiki / ComfyUI-Manager
+        - 交互：点击或回车打开、悬停变色、右键复制链接
+        """
+        import os, webbrowser, tkinter as tk
+        from PIL import Image, ImageTk
+
+        # 颜色（沿用你的浅色主题）
+        c = self.COLORS
+        BG = c.get("BG", "#ffffff")
+        TEXT = c.get("TEXT", "#1f2328")
+        MUTED = c.get("TEXT_MUTED", "#656d76")
+        ACCENT = c.get("ACCENT", "#0969da")
+        ACCENT_HOVER = c.get("ACCENT_HOVER", "#054da7")
+        PANEL = c.get("PANEL", "#ffffff")
+        BORDER = c.get("BORDER", "#d0d7de")
+        CTA_BG = c.get("BTN_BG", "#f6f8fa")
+        CTA_HOVER_BG = c.get("BTN_HOVER_BG", "#eef2f7")
+
+        root = parent.winfo_toplevel()
+
+        frame = tk.Frame(parent, bg=BG)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # 居中容器（控制整体最大宽度）
+        container = tk.Frame(frame, bg=BG)
+        container.pack(fill=tk.BOTH, expand=True, padx=32, pady=28)
+        container.grid_columnconfigure(0, weight=1)
+
+        # 1) Logo
+        hero = tk.Frame(container, bg=BG)
+        hero.grid(row=0, column=0, sticky="n", pady=(10, 6))
+
+        def load_logo_png(path, max_w=420, max_h=140):
+            try:
+                img = Image.open(path).convert("RGBA")
+                img.thumbnail((max_w, max_h), Image.LANCZOS)
+                return ImageTk.PhotoImage(img)
+            except Exception:
+                return None
+
+        # 关于ComfyUI的展示图固定使用 comfyui.png
+        logo_path = self._resolve_asset('comfyui.png')
+        try:
+            self.logger.info("关于ComfyUI: 尝试加载图片=%s (exists=%s)", str(logo_path), logo_path.exists())
+        except Exception:
+            pass
+        logo_photo = load_logo_png(str(logo_path)) if logo_path and logo_path.exists() else None
+
+        if logo_photo:
+            logo = tk.Label(hero, image=logo_photo, bg=BG)
+            logo.image = logo_photo
+            logo.pack(pady=(0, 10))
+        else:
+            # 文字占位
+            tk.Label(
+                hero, text="ComfyUI", bg=BG, fg=TEXT,
+                font=("Microsoft YaHei", 28, "bold")
+            ).pack(pady=(0, 10))
+
+        # 2) 两行标语
+        tagline = tk.Frame(container, bg=BG)
+        tagline.grid(row=1, column=0, sticky="n")
+        tk.Label(
+            tagline, text="最强大的开源基于节点的",
+            bg=BG, fg=TEXT, anchor="center", justify="center",
+            font=("Microsoft YaHei", 20, "bold")
+        ).pack(fill=tk.X)
+        tk.Label(
+            tagline, text="生成式人工智能应用",
+            bg=BG, fg=TEXT, anchor="center", justify="center",
+            font=("Microsoft YaHei", 20, "bold")
+        ).pack(fill=tk.X, pady=(2, 14))
+
+        # 3) 四个链接按钮（2×2 大按钮）
+        ctas_wrap = tk.Frame(container, bg=BG)
+        ctas_wrap.grid(row=2, column=0, sticky="n", pady=(4, 12))
+
+        COLS = 2
+        for i in range(COLS):
+            ctas_wrap.grid_columnconfigure(i, weight=1, uniform="cta")
+
+        ctas = [
+            ("🐙 官方 GitHub", "https://github.com/comfyanonymous/ComfyUI"),
+            ("📰 官方博客", "https://blog.comfy.org/"),
+            ("📘 官方 Wiki", "https://comfyui-wiki.com/"),
+            ("💡 ComfyUI-Manager", "https://github.com/ltdrdata/ComfyUI-Manager"),
+        ]
+
+        def copy_to_clipboard(text: str):
+            try:
+                root.clipboard_clear()
+                root.clipboard_append(text)
+            except Exception:
+                pass
+
+        def make_cta(parent, text, url, row, col):
+            # 用 Label 做大按钮，兼容性更好
+            btn = tk.Label(
+                parent, text=text, bg=CTA_BG, fg=ACCENT,
+                font=("Microsoft YaHei", 14, "bold"),
+                padx=18, pady=12, cursor="hand2",
+                bd=1, relief="solid", highlightthickness=0
+            )
+            btn.grid(row=row, column=col, sticky="ew", padx=10, pady=10)
+
+            def open_url(_=None, u=url):
+                try:
+                    webbrowser.open_new_tab(u)
+                except Exception:
+                    pass
+
+            btn.bind("<Button-1>", open_url)
+            btn.bind("<Return>", open_url)
+            btn.configure(takefocus=1)
+
+            def on_enter(_):
+                btn.configure(bg=CTA_HOVER_BG, fg=ACCENT_HOVER)
+            def on_leave(_):
+                btn.configure(bg=CTA_BG, fg=ACCENT)
+
+            btn.bind("<Enter>", on_enter)
+            btn.bind("<Leave>", on_leave)
+
+            # 右键复制
+            menu = tk.Menu(btn, tearoff=0)
+            menu.add_command(label="复制链接", command=lambda u=url: copy_to_clipboard(u))
+            btn.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
+            return btn
+
+        # 布局：2 列 × 2 行
+        for idx, (text, url) in enumerate(ctas):
+            r, cidx = divmod(idx, COLS)
+            make_cta(ctas_wrap, text, url, r, cidx)
+
+        # 让页面在垂直方向居中更舒适（如果父容器很高）
+        container.grid_rowconfigure(3, weight=1)
 
 
     def build_about_tab(self, parent):
@@ -1566,7 +1949,7 @@ class ComfyUILauncherEnhanced:
         - 两列卡片式布局（窄窗口自动换行）
         """
         import os, webbrowser, tkinter as tk
-        from PIL import Image, ImageTk, ImageDraw
+        from PIL import Image, ImageTk, ImageDraw, ImageFile
 
         # 浅色配色
         c = self.COLORS
@@ -1589,22 +1972,41 @@ class ComfyUILauncherEnhanced:
         header = tk.Frame(frame, bg=BG)
         header.pack(fill=tk.X)
 
-        img_path = os.path.join(os.path.dirname(__file__), "about_me.png")
+        # 头像固定使用 about_me.png（不跨用 rabbit.*）
+        img_path = self._resolve_asset('about_me.png')
+        try:
+            self.logger.info("关于我: 尝试加载头像=%s (exists=%s)", str(img_path), img_path.exists())
+        except Exception:
+            pass
+        # 允许加载被截断的图片，提高容错率
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
 
         def _round_avatar(path, size=96):
-            img = Image.open(path).convert("RGBA").resize((size, size), Image.LANCZOS)
-            mask = Image.new("L", (size, size), 0)
-            ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
-            img.putalpha(mask)
-            return ImageTk.PhotoImage(img)
+            # 首选 PIL 读取并裁剪为圆形；失败则回退 Tk.PhotoImage 方形头像
+            try:
+                img = Image.open(path)
+                img = img.convert("RGBA").resize((size, size), Image.LANCZOS)
+                mask = Image.new("L", (size, size), 0)
+                ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
+                img.putalpha(mask)
+                return ImageTk.PhotoImage(img)
+            except Exception:
+                try:
+                    return tk.PhotoImage(file=path)
+                except Exception:
+                    return None
 
-        try:
-            photo = _round_avatar(img_path, 96)
+        photo = _round_avatar(str(img_path), 96)
+        if photo:
             img_label = tk.Label(header, image=photo, bg=BG)
             img_label.image = photo
             img_label.pack(pady=(0, 14))
-        except Exception as e:
-            tk.Label(header, text=f"[头像加载失败]: {e}", bg=BG, fg="#d1242f").pack(pady=(0, 14))
+        else:
+            try:
+                self.logger.exception("关于我: 头像加载失败，使用占位图")
+            except Exception:
+                pass
+            tk.Label(header, text="[头像加载失败]", bg=BG, fg="#d1242f").pack(pady=(0, 14))
 
         tk.Label(
             header, text="黎黎原上咩",

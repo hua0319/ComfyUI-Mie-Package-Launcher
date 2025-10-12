@@ -5,7 +5,7 @@ a = Analysis(
     ['comfyui_launcher_enhanced.py'],
     pathex=[],
     binaries=[],
-    datas=[('version_manager.py', '.'), ('about_me.png', '.'), ('rabbit.ico', '.'), ('rabbit.png', '.')],
+    datas=[('version_manager.py', '.'), ('assets/about_me.png', 'assets'), ('assets/comfyui.png', 'assets'), ('assets/rabbit.ico', 'assets')],
     hiddenimports=['threading', 'json', 'pathlib', 'subprocess', 'webbrowser', 'tempfile', 'atexit', 'tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog'],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['F:\\ComfyUI_Mie_V7.0_O\\launcher\\rabbit.ico'],
+    icon=['F:\\ComfyUI_Mie_V7.0_O\\launcher\\assets\\rabbit.ico'],
 )

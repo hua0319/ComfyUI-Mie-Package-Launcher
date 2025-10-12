@@ -20,8 +20,8 @@
     "python_embeded": "python_embeded",
     "custom_nodes": "ComfyUI/custom_nodes",
     "bat_files_directory": ".",
-    "comfyui_path": "F:\\ComfyUI_Mie_V6.0\\ComfyUI",
-    "python_path": "F:\\ComfyUI_Mie_V7.0\\python_embeded\\python.exe",
+    "comfyui_path": "F:\\ComfyUI_Mie_V7.0_O\\ComfyUI",
+    "python_path": "F:\\ComfyUI_Mie_V7.0_O\\python_embeded\\python.exe",
     "hf_mirror": "hf-mirror"
   },
   "advanced": {
@@ -39,6 +39,6 @@
   },
   "integrations": {
     "comfyui_manager_git_set": true,
-    "comfyui_manager_git_path": "F:\\ComfyUI_Mie_V7.0\\tools\\PortableGit\\bin\\git.exe"
+    "comfyui_manager_git_path": "F:\\ComfyUI_Mie_V7.0_O\\tools\\PortableGit\\bin\\git.exe"
   }
 }

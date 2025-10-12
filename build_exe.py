@@ -54,9 +54,9 @@ def build_exe():
         '--onefile',
         '--windowed',  # 改回窗口模式
         '--add-data=version_manager.py;.',
-        '--add-data=about_me.png;.',
-        '--add-data=rabbit.ico;.',
-        '--add-data=rabbit.png;.',
+        '--add-data=assets/about_me.png;assets',
+        '--add-data=assets/comfyui.png;assets',
+        '--add-data=assets/rabbit.ico;assets',
         '--hidden-import=threading',
         '--hidden-import=json',
         '--hidden-import=pathlib',
@@ -77,9 +77,32 @@ def build_exe():
     ]
     
     # 检查图标文件是否存在
-    icon_path = os.path.join(current_dir, 'rabbit.ico')
-    if os.path.exists(icon_path):
-        args.insert(-1, f'--icon={icon_path}')
+    # 如果设置了环境变量 SKIP_ICON=1，则跳过图标嵌入（用于规避异常）
+    if os.environ.get('SKIP_ICON') == '1':
+        pass
+    else:
+        # 选择有效的 ico 文件作为图标（校验 ICO 头部以避免 PyInstaller 读取错误）
+        def _valid_ico(path: str) -> bool:
+            try:
+                if not os.path.exists(path):
+                    return False
+                if os.path.getsize(path) <= 0:
+                    return False
+                with open(path, 'rb') as f:
+                    header = f.read(4)
+                    # ICO: 00 00 01 00 或 CUR: 00 00 02 00
+                    return header in (b'\x00\x00\x01\x00', b'\x00\x00\x02\x00')
+            except Exception:
+                return False
+
+        candidates = [
+            os.path.join(current_dir, 'assets', 'rabbit.ico'),
+            os.path.join(current_dir, 'rabbit.ico'),
+        ]
+        for ico in candidates:
+            if _valid_ico(ico):
+                args.insert(-1, f'--icon={ico}')
+                break
     
     try:
         # 运行PyInstaller
