@@ -20,7 +20,7 @@
     "python_embeded": "python_embeded",
     "custom_nodes": "ComfyUI/custom_nodes",
     "bat_files_directory": ".",
-    "comfyui_path": "F:\\ComfyUI_Mie_V7.0_O\\ComfyUI",
+    "comfyui_path": "F:\\ComfyUI_Mie_V7.0\\ComfyUI",
     "python_path": "F:\\ComfyUI_Mie_V7.0_O\\python_embeded\\python.exe",
     "hf_mirror": "hf-mirror"
   },
