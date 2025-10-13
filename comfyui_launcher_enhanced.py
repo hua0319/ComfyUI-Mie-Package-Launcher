@@ -21,6 +21,7 @@ from ui import network_panel as NETWORK
 from ui import about_tab as ABOUT
 from ui import comfyui_tab as COMFY
 from ui import start_button_panel as START
+from ui import launcher_about_tab as LAUNCHER_ABOUT
 
 # ================== 单实例锁 ==================
 try:
@@ -909,7 +910,7 @@ class ComfyUILauncherEnhanced:
             anchor='center', justify='center'
         ).pack(fill=tk.X, pady=(4, 0))
         self.nav_buttons = {}
-        for key, label in [("launch", "🚀 启动与更新"), ("version", "🧬 内核版本管理"), ("about", "👤 关于我"), ("comfyui", "📚 关于ComfyUI")]:
+        for key, label in [("launch", "🚀 启动与更新"), ("version", "🧬 内核版本管理"), ("about", "👤 关于我"), ("about_launcher", "🧰 关于启动器"), ("comfyui", "📚 关于ComfyUI")]:
             btn = ttk.Button(self.sidebar, text=label, style='Nav.TButton',
                              command=lambda k=key: self.select_tab(k))
             btn.pack(fill=tk.X, padx=8, pady=3)
@@ -947,23 +948,26 @@ class ComfyUILauncherEnhanced:
             "launch": tk.Frame(self.notebook, bg=c["BG"]),
             "version": tk.Frame(self.notebook, bg=c["BG"]),
             "comfyui": tk.Frame(self.notebook, bg=c["BG"]),
-            "about": tk.Frame(self.notebook, bg=c["BG"])
+            "about": tk.Frame(self.notebook, bg=c["BG"]),
+            "about_launcher": tk.Frame(self.notebook, bg=c["BG"]),
         }
         self.notebook.add(self.tab_frames["launch"], text="启动与更新")
         self.notebook.add(self.tab_frames["version"], text="内核版本管理")
         self.notebook.add(self.tab_frames["about"], text="关于我")
         self.notebook.add(self.tab_frames["comfyui"], text="关于 ComfyUI")
+        self.notebook.add(self.tab_frames["about_launcher"], text="关于启动器")
 
         self.build_launch_tab(self.tab_frames["launch"])
         self.build_version_tab(self.tab_frames["version"])
         ABOUT.build_about_tab(self, self.tab_frames["about"])
+        LAUNCHER_ABOUT.build_about_launcher(self, self.tab_frames["about_launcher"])
         COMFY.build_about_comfyui(self, self.tab_frames["comfyui"])
 
         self.notebook.select(self.notebook.tabs()[0])
         self.current_tab_name = "launch"
 
     def select_tab(self, name):
-        tab_order = ["launch", "version", "about", "comfyui"]
+        tab_order = ["launch", "version", "about", "about_launcher", "comfyui"]
         idx = tab_order.index(name)
         tabs = self.notebook.tabs()
         if idx < len(tabs):
