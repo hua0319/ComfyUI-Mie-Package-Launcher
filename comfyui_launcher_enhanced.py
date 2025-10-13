@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkinter import font as tkfont
 import subprocess, threading, json, os, sys, webbrowser, tempfile, atexit, shutil
+import ctypes
 import shlex
 from pathlib import Path
 from urllib.parse import urlparse
@@ -576,6 +577,12 @@ class ComfyUILauncherEnhanced:
             self.root.title("ComfyUI启动器 - 黎黎原上咩")
             self.root.geometry("1250x820")
             self.root.minsize(1100, 700)
+            # Windows: 设置 AppUserModelID，改善任务栏图标与分组一致性
+            try:
+                if os.name == 'nt':
+                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ComfyUILauncher")
+            except Exception:
+                pass
             # 窗口图标：优先使用 rabbit.ico，适配 PyInstaller (sys._MEIPASS) 环境；失败则回退到 rabbit.png
             try:
                 # 可选：通过环境变量或文件跳过图标设置，便于快速定位卡顿（抽离到 assets）
@@ -622,7 +629,8 @@ class ComfyUILauncherEnhanced:
                         self.logger.info("样式阶段: 默认跳过 iconbitmap 设置 (enable_ico=%s)", enable_ico)
                     except Exception:
                         pass
-                if not icon_set and not skip_icons:
+                # 无论是否已设置 ICO，都尝试设置 PNG 以提升缩放质量与一致性
+                if not skip_icons:
                     png_candidates = ASSETS.icon_candidates_png()
                     try:
                         self.logger.info("样式阶段: PNG候选列表=%s", 
@@ -1157,19 +1165,55 @@ class ComfyUILauncherEnhanced:
                         pass
                     return
                 else:
-                    # 取消启动，维持按钮状态为“启动”
+                    # 用户选择不直接打开网页：提供停止旧实例并启动新实例的选项
                     try:
-                        self.logger.warning("端口占用，已取消启动: %s", port)
+                        restart = messagebox.askyesno(
+                            "端口被占用",
+                            "是否停止现有实例并用当前配置启动新的 ComfyUI?"
+                        )
                     except Exception:
-                        pass
-                    return
+                        restart = False
+                    if restart:
+                        try:
+                            self.stop_all_comfyui_instances()
+                        except Exception:
+                            pass
+                        # 尝试启动新的实例
+                        self.start_comfyui()
+                        return
+                    else:
+                        # 取消启动，维持按钮状态为“启动”
+                        try:
+                            self.logger.warning("端口占用，用户取消重启: %s", port)
+                        except Exception:
+                            pass
+                        return
             # 未占用则正常启动
             self.start_comfyui()
 
     def start_comfyui(self):
         try:
-            py = Path(self.config["paths"]["python_path"])
-            main = Path(self.config["paths"]["comfyui_path"]) / "main.py"
+            comfy_root = Path(self.config["paths"]["comfyui_path"]).resolve()
+            py = Path(self.config["paths"]["python_path"]).resolve()
+            # 若 Python 路径与当前 ComfyUI 根目录不一致，且新根目录下存在 python_embeded，则自动切换
+            try:
+                py_root = py.parent.parent.resolve()
+            except Exception:
+                py_root = None
+            candidate_py = comfy_root.parent / "python_embeded" / ("python.exe" if os.name == 'nt' else "python")
+            if (not py.exists()) or (py_root and py_root != comfy_root.parent.resolve() and candidate_py.exists()):
+                py = candidate_py
+                try:
+                    self.config["paths"]["python_path"] = str(py)
+                    # 立即保存，避免后续启动仍读到旧路径
+                    self.save_config()
+                    try:
+                        self.logger.info("自动切换 Python 路径为当前根目录: %s", py)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            main = comfy_root / "main.py"
             if not py.exists():
                 messagebox.showerror("错误", f"Python不存在: {py}")
                 return
@@ -1261,15 +1305,24 @@ class ComfyUILauncherEnhanced:
 
             def worker():
                 try:
+                    # 始终以当前配置的 ComfyUI 根目录作为工作目录运行
+                    try:
+                        run_cwd = str(Path(self.config["paths"]["comfyui_path"]).resolve())
+                    except Exception:
+                        run_cwd = os.getcwd()
+                    try:
+                        self.logger.info("启动工作目录(cwd): %s", run_cwd)
+                    except Exception:
+                        pass
                     if os.name == 'nt':
                         # 始终显示控制台窗口
                         self.comfyui_process = subprocess.Popen(
-                            cmd, env=env, cwd=os.getcwd(),
+                            cmd, env=env, cwd=run_cwd,
                             creationflags=subprocess.CREATE_NEW_CONSOLE,
                         )
                     else:
                         self.comfyui_process = subprocess.Popen(
-                            cmd, env=env, cwd=os.getcwd()
+                            cmd, env=env, cwd=run_cwd
                         )
                     threading.Event().wait(2)
                     if self.comfyui_process.poll() is None:

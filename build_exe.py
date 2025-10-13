@@ -56,6 +56,7 @@ def build_exe():
         '--add-data=version_manager.py;.',
         '--add-data=assets/about_me.png;assets',
         '--add-data=assets/comfyui.png;assets',
+        '--add-data=assets/rabbit.png;assets',
         '--add-data=assets/rabbit.ico;assets',
         '--hidden-import=threading',
         '--hidden-import=json',
