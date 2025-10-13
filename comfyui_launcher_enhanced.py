@@ -910,7 +910,7 @@ class ComfyUILauncherEnhanced:
             anchor='center', justify='center'
         ).pack(fill=tk.X, pady=(4, 0))
         self.nav_buttons = {}
-        for key, label in [("launch", "🚀 启动与更新"), ("version", "🧬 内核版本管理"), ("about", "👤 关于我"), ("about_launcher", "🧰 关于启动器"), ("comfyui", "📚 关于ComfyUI")]:
+        for key, label in [("launch", "🚀 启动与更新"), ("version", "🧬 内核版本管理"), ("about", "👤 关于我"), ("comfyui", "📚 关于ComfyUI"), ("about_launcher", "🧰 关于启动器")]:
             btn = ttk.Button(self.sidebar, text=label, style='Nav.TButton',
                              command=lambda k=key: self.select_tab(k))
             btn.pack(fill=tk.X, padx=8, pady=3)
@@ -967,7 +967,7 @@ class ComfyUILauncherEnhanced:
         self.current_tab_name = "launch"
 
     def select_tab(self, name):
-        tab_order = ["launch", "version", "about", "about_launcher", "comfyui"]
+        tab_order = ["launch", "version", "about", "comfyui", "about_launcher"]
         idx = tab_order.index(name)
         tabs = self.notebook.tabs()
         if idx < len(tabs):
