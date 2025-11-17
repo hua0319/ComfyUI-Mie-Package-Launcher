@@ -1,11 +1,12 @@
 import tkinter as tk
 from tkinter import ttk
+from ui.constants import CARD_BG, BODY_FONT
 
 
 def build_network_panel(app, form, rounded_button_cls=None):
     c = app.COLORS
     # 让网络配置区域横向填充，从而可将按钮推到更靠右
-    net_frame = tk.Frame(form, bg=app.CARD_BG)
+    net_frame = tk.Frame(form, bg=CARD_BG)
     net_frame.grid(row=3, column=1, sticky="we", pady=(0, 10))
     try:
         net_frame.grid_columnconfigure(3, weight=1)
@@ -13,7 +14,7 @@ def build_network_panel(app, form, rounded_button_cls=None):
         pass
 
     # HF 镜像
-    tk.Label(net_frame, text="HF 镜像:", bg=app.CARD_BG, fg=c["TEXT"], font=app.BODY_FONT) \
+    tk.Label(net_frame, text="HF 镜像:", bg=CARD_BG, fg=c["TEXT"], font=BODY_FONT) \
         .grid(row=0, column=0, sticky='w', padx=(0, 8))
     app.hf_mirror_combobox = ttk.Combobox(
         net_frame,
@@ -32,7 +33,7 @@ def build_network_panel(app, form, rounded_button_cls=None):
         pass
 
     # GitHub 代理
-    tk.Label(net_frame, text="GitHub 代理:", bg=app.CARD_BG, fg=c["TEXT"], font=app.BODY_FONT).grid(
+    tk.Label(net_frame, text="GitHub 代理:", bg=CARD_BG, fg=c["TEXT"], font=BODY_FONT).grid(
         row=1, column=0, sticky='w', padx=(0, 8), pady=(6, 0)
     )
     app.github_proxy_mode_combo = ttk.Combobox(
@@ -81,7 +82,7 @@ def build_network_panel(app, form, rounded_button_cls=None):
         pass
 
     # PyPI 代理
-    tk.Label(net_frame, text="PyPI 代理:", bg=app.CARD_BG, fg=c["TEXT"], font=app.BODY_FONT).grid(
+    tk.Label(net_frame, text="PyPI 代理:", bg=CARD_BG, fg=c["TEXT"], font=BODY_FONT).grid(
         row=2, column=0, sticky='w', padx=(0, 8), pady=(6, 0)
     )
     app.pypi_proxy_mode_combo = ttk.Combobox(
@@ -100,7 +101,7 @@ def build_network_panel(app, form, rounded_button_cls=None):
     app.pypi_proxy_url_entry.grid(row=2, column=2, sticky='w', padx=(8, 0), pady=(6, 0))
 
     # 在网络配置的右侧空白处放置“恢复默认设置”按钮，使用蓝色强调样式
-    right_actions = tk.Frame(net_frame, bg=app.CARD_BG)
+    right_actions = tk.Frame(net_frame, bg=CARD_BG)
     right_actions.grid(row=0, column=4, rowspan=3, sticky='e', padx=(16, 0), pady=(0, 0))
     btn_cls = rounded_button_cls
     if btn_cls:

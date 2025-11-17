@@ -49,8 +49,7 @@ class ConfigManager:
                 "custom_nodes": "ComfyUI/custom_nodes",
                 "bat_files_directory": ".",
                 "comfyui_path": "ComfyUI",
-                "python_path": "python_embeded/python.exe",
-                "hf_mirror": "hf-mirror"
+                "python_path": "python_embeded/python.exe"
             },
             "advanced": {
                 "check_environment_changes": True,
@@ -63,6 +62,7 @@ class ConfigManager:
                 "git_proxy_url": "https://gh-proxy.com/",
                 "pypi_proxy_mode": "aliyun",
                 "pypi_proxy_url": "https://mirrors.aliyun.com/pypi/simple/",
+                "hf_mirror_mode": "hf-mirror",
                 "hf_mirror_url": "https://hf-mirror.com"
             }
         }
@@ -81,7 +81,6 @@ class ConfigManager:
             
         default_config = self.get_default_config()
         
-        # 确保配置目录存在
         try:
             self.config_file.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -95,6 +94,17 @@ class ConfigManager:
                     self.logger.info("配置读取成功")
                 except Exception:
                     pass
+                try:
+                    ps = self.config.setdefault("proxy_settings", {})
+                    paths = self.config.setdefault("paths", {})
+                    if "hf_mirror" in paths and "hf_mirror_mode" not in ps:
+                        ps["hf_mirror_mode"] = paths.pop("hf_mirror")
+                    for k in ("pypi_proxy_url", "hf_mirror_url", "git_proxy_url"):
+                        v = ps.get(k)
+                        if isinstance(v, str):
+                            ps[k] = v.strip().strip('`').strip()
+                except Exception:
+                    pass
             except Exception as e:
                 self.config = default_config
                 try:
@@ -102,10 +112,8 @@ class ConfigManager:
                 except Exception:
                     pass
         else:
-            # 使用默认配置并自动检测 ComfyUI 路径
             self.config = default_config
             self._auto_detect_comfyui_path()
-            # 保存默认配置到文件
             self.save_config()
             try:
                 self.logger.info("首次创建配置文件并写入默认值")
@@ -117,14 +125,13 @@ class ConfigManager:
     def _auto_detect_comfyui_path(self):
         """自动检测 ComfyUI 路径"""
         try:
-            # 尝试从当前目录的父目录查找 ComfyUI
             app_root = Path.cwd()
             auto_comfy = app_root / "ComfyUI"
             
             if auto_comfy.exists() and (auto_comfy / "main.py").exists():
-                self.config["paths"]["comfyui_path"] = str(auto_comfy.resolve())
+                self.config["paths"]["comfyui_root"] = str(auto_comfy.parent.resolve())
                 try:
-                    self.logger.info("检测到本地 ComfyUI 目录，已自动设置路径: %s", str(auto_comfy.resolve()))
+                    self.logger.info("检测到本地 ComfyUI 目录，已自动设置 root=%s", str(auto_comfy.parent.resolve()))
                 except Exception:
                     pass
         except Exception:
@@ -190,13 +197,11 @@ class ConfigManager:
         keys = key_path.split('.')
         config = self.config
         
-        # 导航到最后一级的父级
         for key in keys[:-1]:
             if key not in config:
                 config[key] = {}
             config = config[key]
         
-        # 设置最终值
         config[keys[-1]] = value
     
     def update_launch_options(self, **kwargs):

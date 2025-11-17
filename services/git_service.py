@@ -1,0 +1,119 @@
+from pathlib import Path
+from utils.common import run_hidden
+
+
+class GitService:
+    def __init__(self, app):
+        self.app = app
+
+    def resolve_git(self):
+        pg_candidates = []
+        try:
+            pg_candidates.append(Path(self.app.python_exec).resolve().parent / "tools" / "PortableGit" / "bin" / "git.exe")
+        except Exception:
+            pass
+        try:
+            pg_candidates.append(Path(__file__).resolve().parent.parent / "tools" / "PortableGit" / "bin" / "git.exe")
+        except Exception:
+            pass
+        try:
+            pg_candidates.append(Path(__file__).resolve().parent / "tools" / "PortableGit" / "bin" / "git.exe")
+        except Exception:
+            pass
+        pg_candidates.append(Path.cwd() / "tools" / "PortableGit" / "bin" / "git.exe")
+        for c in pg_candidates:
+            try:
+                if c.exists():
+                    r_pkg = run_hidden([str(c), "--version"], capture_output=True, text=True, timeout=5)
+                    if r_pkg.returncode == 0:
+                        self.app.git_path = str(c)
+                        try:
+                            self.app.logger.info(f"Git解析: 使用整合包Git path={self.app.git_path}")
+                        except Exception:
+                            pass
+                        try:
+                            self.apply_to_manager(self.app.git_path)
+                        except Exception:
+                            pass
+                        return self.app.git_path, "使用整合包Git"
+            except Exception:
+                pass
+        try:
+            r_sys = run_hidden(["git", "--version"], capture_output=True, text=True, timeout=5)
+            if r_sys.returncode == 0:
+                self.app.git_path = "git"
+                try:
+                    self.app.logger.info("Git解析: 使用系统Git path=git")
+                except Exception:
+                    pass
+                return self.app.git_path, "使用系统Git"
+        except Exception:
+            pass
+        self.app.git_path = None
+        try:
+            self.app.logger.warning("Git解析: 未找到Git命令")
+        except Exception:
+            pass
+        return None, "未找到Git命令"
+
+    def apply_to_manager(self, git_path: str):
+        try:
+            if not git_path:
+                return
+            try:
+                base = Path(self.app.config["paths"].get("comfyui_root", "")).resolve()
+                comfy_root = (base / "ComfyUI").resolve()
+            except Exception:
+                comfy_root = None
+            if not (comfy_root and comfy_root.exists()):
+                return
+            ini_path = comfy_root / "user" / "default" / "ComfyUI-Manager" / "config.ini"
+            try:
+                integrations = self.app.config.setdefault("integrations", {})
+            except Exception:
+                integrations = {}
+                try:
+                    self.app.config["integrations"] = integrations
+                except Exception:
+                    pass
+            last_path = integrations.get("comfyui_manager_git_path")
+            if last_path == git_path and ini_path.exists():
+                return
+            try:
+                ini_path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            try:
+                content = ini_path.read_text(encoding="utf-8", errors="ignore") if ini_path.exists() else ""
+            except Exception:
+                content = ""
+            lines = content.splitlines()
+            updated = False
+            new_lines = []
+            for line in lines:
+                if line.strip().lower().startswith("git_exe"):
+                    new_lines.append(f"git_exe = {git_path}")
+                    updated = True
+                else:
+                    new_lines.append(line)
+            if not updated:
+                new_lines.append(f"git_exe = {git_path}")
+            try:
+                ini_path.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+            except Exception:
+                with open(ini_path, "wb") as f:
+                    f.write(("\n".join(new_lines) + ("\n" if new_lines else "")).encode("utf-8", errors="ignore"))
+            try:
+                integrations["comfyui_manager_git_set"] = True
+                integrations["comfyui_manager_git_path"] = git_path
+                try:
+                    if getattr(self.app, 'services', None) and getattr(self.app.services, 'config', None):
+                        self.app.services.config.save(self.app.config)
+                    else:
+                        self.app.config_manager.save_config(self.app.config)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        except Exception:
+            pass

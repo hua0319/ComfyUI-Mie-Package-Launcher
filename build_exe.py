@@ -53,7 +53,6 @@ def build_exe():
         '--name=ComfyUI启动器',
         '--onefile',
         '--windowed',  # 改回窗口模式
-        '--add-data=version_manager.py;.',
         '--add-data=assets/about_me.png;assets',
         '--add-data=assets/comfyui.png;assets',
         '--add-data=assets/rabbit.png;assets',
@@ -69,6 +68,16 @@ def build_exe():
         '--hidden-import=tkinter.ttk',
         '--hidden-import=tkinter.messagebox',
         '--hidden-import=tkinter.filedialog',
+        # 新结构的显式隐藏导入，确保打包准确包含子模块
+        '--hidden-import=core.version_manager',
+        '--hidden-import=core.process_manager',
+        '--hidden-import=config.manager',
+        '--hidden-import=utils.logging',
+        '--hidden-import=utils.paths',
+        '--hidden-import=utils.net',
+        '--hidden-import=utils.pip',
+        '--hidden-import=utils.common',
+        '--hidden-import=ui.assets_helper',
         '--exclude-module=fcntl',
         '--exclude-module=posix',
         '--exclude-module=pwd',
@@ -113,7 +122,7 @@ def build_exe():
         exe_path = os.path.join(current_dir, 'dist', 'ComfyUI启动器.exe')
         if os.path.exists(exe_path):
             # 复制到项目根目录
-            root_exe_path = os.path.join(current_dir, '..', 'ComfyUI启动器.exe')
+            root_exe_path = os.path.join(current_dir, 'ComfyUI启动器.exe')
             shutil.copy2(exe_path, root_exe_path)
             
             print(f"\n打包完成!")

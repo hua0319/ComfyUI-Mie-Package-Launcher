@@ -13,7 +13,9 @@ import re #
 import socket #
 from tkinter import messagebox
 from pathlib import Path
-from utils import run_hidden #
+from utils.common import run_hidden #
+from core.probe import is_http_reachable, find_pids_by_port_safe, is_comfyui_pid
+from core.kill import kill_pids
 
 # 尝试导入 psutil，如果失败则在相关功能中回退
 try:
@@ -51,7 +53,7 @@ class ProcessManager:
             if self.comfyui_process and self.comfyui_process.poll() is None:
                 running = True
             else:
-                running = self._is_http_reachable()
+                running = is_http_reachable(self.app)
         except Exception:
             running = False
         if running:
@@ -60,7 +62,7 @@ class ProcessManager:
             # 启动前追加端口占用检测：若任何进程占用目标端口，则避免重复启动
             try:
                 port = (self.app.custom_port.get() or "8188").strip()
-                pids = self._find_pids_by_port_safe(port)
+                pids = find_pids_by_port_safe(port)
             except Exception:
                 pids = []
             if pids:
@@ -108,156 +110,46 @@ class ProcessManager:
 
     def start_comfyui(self): #
         try:
-            comfy_root = Path(self.app.config["paths"]["comfyui_path"]).resolve()
-            py = Path(self.app.config["paths"]["python_path"]).resolve()
-            # 若 Python 路径与当前 ComfyUI 根目录不一致，且新根目录下存在 python_embeded，则自动切换
+            from core.launcher_cmd import build_launch_params
+            cmd, env, run_cwd, py, main = build_launch_params(self.app)
             try:
-                py_root = py.parent.parent.resolve()
+                if getattr(self.app, 'services', None):
+                    self.app.services.runtime.pre_start_up()
             except Exception:
-                py_root = None
-            candidate_py = comfy_root.parent / "python_embeded" / ("python.exe" if os.name == 'nt' else "python")
-            if (not py.exists()) or (py_root and py_root != comfy_root.parent.resolve() and candidate_py.exists()):
-                py = candidate_py
-                try:
-                    self.app.config["paths"]["python_path"] = str(py)
-                    # 立即保存，避免后续启动仍读到旧路径
-                    self.app.save_config()
-                    try:
-                        self.app.logger.info("自动切换 Python 路径为当前根目录: %s", py)
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-            main = comfy_root / "main.py"
+                pass
             if not py.exists():
-                messagebox.showerror("错误", f"Python不存在: {py}")
+                self._show_error("错误", f"Python不存在: {py}")
                 return
             if not main.exists():
-                messagebox.showerror("错误", f"主文件不存在: {main}")
+                self._show_error("错误", f"主文件不存在: {main}")
                 return
-            cmd = [str(py), "-s", str(main), "--windows-standalone-build"]
-            if self.app.compute_mode.get() == "cpu":
-                cmd.append("--cpu")
-            if self.app.use_fast_mode.get():
-                cmd.extend(["--fast"])
-            if self.app.listen_all.get():
-                cmd.extend(["--listen", "0.0.0.0"])
-            port = self.app.custom_port.get().strip()
-            if port and port != "8188":
-                cmd.extend(["--port", port])
-            if self.app.enable_cors.get():
-                cmd.extend(["--enable-cors-header", "*"])
-            # 追加自定义额外参数（支持引号与空格）
-            extra = (self.app.extra_launch_args.get() or "").strip()
-            if extra:
-                try:
-                    extra_tokens = shlex.split(extra) #
-                except Exception:
-                    extra_tokens = extra.split()
-                cmd.extend(extra_tokens)
+            try:
+                from pathlib import Path as _P
+                rver = run_hidden([str(py), "--version"], capture_output=True, text=True, timeout=5)
+                if rver.returncode != 0:
+                    self._show_error("错误", f"Python无法执行: {py}")
+                    return
+            except Exception as _e:
+                self._show_error("错误", str(_e))
+                return
             try:
                 self.app.logger.info("启动命令: %s", " ".join(cmd))
-                if extra:
-                    self.app.logger.info("附加参数: %s", extra)
             except Exception:
                 pass
-            env = os.environ.copy()
-            sel = self.app.selected_hf_mirror.get()
-            if sel != "不使用镜像":
-                # 使用输入框的 URL；当选择“hf-mirror”时已自动填充默认值
-                endpoint = (self.app.hf_mirror_url.get() or "").strip()
-                if endpoint:
-                    env["HF_ENDPOINT"] = endpoint
             try:
                 self.app.logger.info("环境变量(HF_ENDPOINT): %s", env.get("HF_ENDPOINT", ""))
-            except Exception:
-                pass
-            # 若设置了 GitHub 代理，则注入 GITHUB_ENDPOINT 环境变量
-            try:
-                vm = getattr(self.app, 'version_manager', None)
-                if vm and vm.proxy_mode_var.get() in ('gh-proxy', 'custom'):
-                    base = (vm.proxy_url_var.get() or '').strip()
-                    if base:
-                        if not base.endswith('/'):
-                            base += '/'
-                        env["GITHUB_ENDPOINT"] = f"{base}https://github.com"
             except Exception:
                 pass
             try:
                 self.app.logger.info("环境变量(GITHUB_ENDPOINT): %s", env.get("GITHUB_ENDPOINT", ""))
             except Exception:
                 pass
-            # 为 GitPython 指定 Git 可执行文件，优先使用整合包的便携 Git
-            try:
-                git_cmd = None
-                try:
-                    # 若之前已解析过，直接使用；否则尝试解析
-                    git_cmd = self.app.git_path if getattr(self.app, 'git_path', None) else None
-                except Exception:
-                    git_cmd = None
-                if not git_cmd:
-                    try:
-                        # 确保 resolve_git 存在且可用
-                        resolve_git_func = getattr(self.app, 'resolve_git', None)
-                        if resolve_git_func:
-                            git_cmd, _src = resolve_git_func()
-                    except Exception:
-                        git_cmd = None
-                if git_cmd and git_cmd != 'git':
-                    # 设置 GitPython 专用环境变量
-                    env["GIT_PYTHON_GIT_EXECUTABLE"] = str(git_cmd)
-                    # 兼容某些脚本直接调用 git：将便携 Git 的 bin 目录置于 PATH 前侧
-                    try:
-                        git_bin = str(Path(git_cmd).resolve().parent)
-                        env["PATH"] = git_bin + os.pathsep + env.get("PATH", "")
-                    except Exception:
-                        pass
-                try:
-                    self.app.logger.info("环境变量(GIT_PYTHON_GIT_EXECUTABLE): %s", env.get("GIT_PYTHON_GIT_EXECUTABLE", ""))
-                except Exception:
-                    pass
-            except Exception:
-                pass
-            self.app.big_btn.set_state("starting")
-            self.app.big_btn.set_text("启动中…")
-            self.app._launching = True
-
-            def worker():
-                try:
-                    # 始终以当前配置的 ComfyUI 根目录作为工作目录运行
-                    try:
-                        run_cwd = str(Path(self.app.config["paths"]["comfyui_path"]).resolve())
-                    except Exception:
-                        run_cwd = os.getcwd()
-                    try:
-                        self.app.logger.info("启动工作目录(cwd): %s", run_cwd)
-                    except Exception:
-                        pass
-                    if os.name == 'nt':
-                        # 始终显示控制台窗口
-                        self.comfyui_process = subprocess.Popen(
-                            cmd, env=env, cwd=run_cwd,
-                            creationflags=subprocess.CREATE_NEW_CONSOLE, #
-                        )
-                    else:
-                        self.comfyui_process = subprocess.Popen(
-                            cmd, env=env, cwd=run_cwd
-                        )
-                    threading.Event().wait(2)
-                    if self.comfyui_process.poll() is None:
-                        self.app.root.after(0, self.on_start_success)
-                    else:
-                        self.app.root.after(0, lambda: self.on_start_failed("进程退出"))
-                except Exception as e:
-                    msg = str(e)
-                    # 捕获当前异常信息到默认参数，避免闭包中变量未绑定问题
-                    self.app.root.after(0, lambda m=msg: self.on_start_failed(m))
-
-            threading.Thread(target=worker, daemon=True).start()
+            from core.runner_start import start as run_start
+            run_start(self.app, self, cmd, env, run_cwd)
         except Exception as e:
             msg = str(e)
             try:
-                messagebox.showerror("启动失败", msg)
+                self._show_error("启动失败", msg)
             except Exception:
                 pass
             # 同样使用默认参数绑定，避免在 after 回调中出现自由变量问题
@@ -283,176 +175,96 @@ class ProcessManager:
         self.comfyui_process = None
 
     def stop_comfyui(self): #
+        def _bg():
+            try:
+                from core.runner_stop import stop as run_stop
+                killed = False
+                try:
+                    # 若未跟踪到子进程，先尝试全局关闭（适配外部启动实例）
+                    if not (self.comfyui_process and self.comfyui_process.poll() is None):
+                        try:
+                            self.app.stop_all_comfyui_instances()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                killed = run_stop(self.app, self)
+                try:
+                    if killed:
+                        self.app.root.after(0, self.on_process_ended)
+                    else:
+                        self.app.root.after(0, self._refresh_running_status)
+                    
+                except Exception:
+                    pass
+            except Exception:
+                pass
         try:
-            self.app.logger.info("用户点击停止：开始关闭 ComfyUI")
+            threading.Thread(target=_bg, daemon=True).start()
         except Exception:
             pass
-        # 停止过程中也避免重复点击触发启动
-        self.app._launching = False
-        killed = False
-        # 1) 优先停止当前已跟踪的进程
-        if getattr(self, "comfyui_process", None) and self.comfyui_process.poll() is None:
-            try:
-                self.app.logger.info("检测到已跟踪进程，PID=%s，按平台策略终止", str(self.comfyui_process.pid))
-            except Exception:
-                pass
-            pid_str = str(self.comfyui_process.pid)
-            if os.name == 'nt':
-                # Windows：按序尝试 /T、/T /F，然后回退到 terminate/kill，避免残留控制台窗口
-                try:
-                    r_soft = run_hidden(["taskkill", "/PID", pid_str, "/T"], capture_output=True, text=True) #
-                    try:
-                        self.app.logger.info("Windows 停止阶段: taskkill /T 返回码=%s", str(r_soft.returncode))
-                    except Exception:
-                        pass
-                    if r_soft.returncode == 0:
-                        killed = True
-                        try:
-                            self.app.logger.info("Windows 停止阶段: 已通过 taskkill /T 终止 PID=%s (含控制台)", pid_str)
-                        except Exception:
-                            pass
-                    else:
-                        r_hard = run_hidden(["taskkill", "/PID", pid_str, "/T", "/F"], capture_output=True, text=True) #
-                        try:
-                            self.app.logger.info("Windows 停止阶段: taskkill /T /F 返回码=%s", str(r_hard.returncode))
-                        except Exception:
-                            pass
-                        if r_hard.returncode == 0:
-                            killed = True
-                            try:
-                                self.app.logger.info("Windows 停止阶段: 已通过 taskkill /T /F 强制终止 PID=%s", pid_str)
-                            except Exception:
-                                pass
-                        else:
-                            # taskkill 未能终止，改用 Popen API
-                            try:
-                                self.comfyui_process.terminate()
-                                self.comfyui_process.wait(timeout=5)
-                                killed = True
-                                try:
-                                    self.app.logger.warning("Windows 停止阶段: taskkill 失败，已回退到 terminate+wait，PID=%s", pid_str)
-                                except Exception:
-                                    pass
-                            except subprocess.TimeoutExpired: #
-                                try:
-                                    self.comfyui_process.kill()
-                                    killed = True
-                                    try:
-                                        self.app.logger.warning("Windows 停止阶段: terminate 超时，已 kill，PID=%s", pid_str)
-                                    except Exception:
-                                        pass
-                                except Exception as e3:
-                                    try:
-                                        self.app.logger.error("Windows 停止阶段: 回退强制结束失败: %s", str(e3))
-                                    except Exception:
-                                        pass
-                                    messagebox.showerror("错误", f"停止失败: {e3}")
-                except Exception as e:
-                    try:
-                        self.app.logger.error("Windows 停止阶段: taskkill 执行异常: %s，回退到 terminate/kill", str(e))
-                    except Exception:
-                        pass
-                    try:
-                        self.comfyui_process.terminate()
-                        self.comfyui_process.wait(timeout=5)
-                        killed = True
-                        try:
-                            self.app.logger.warning("Windows 停止阶段: 已回退到 terminate+wait，PID=%s", pid_str)
-                        except Exception:
-                            pass
-                    except subprocess.TimeoutExpired: #
-                        try:
-                            self.comfyui_process.kill()
-                            killed = True
-                            try:
-                                self.app.logger.warning("Windows 停止阶段: 回退 terminate 超时，已 kill，PID=%s", pid_str)
-                            except Exception:
-                                pass
-                        except Exception as e2:
-                            try:
-                                self.app.logger.error("Windows 停止阶段: 回退强制结束失败: %s", str(e2))
-                            except Exception:
-                                pass
-                            messagebox.showerror("错误", f"停止失败: {e2}")
-            else:
-                # 非 Windows：沿用 terminate -> wait -> kill
-                try:
-                    self.comfyui_process.terminate()
-                    self.comfyui_process.wait(timeout=5)
-                    killed = True
-                    try:
-                        self.app.logger.info("已终止跟踪进程，PID=%s", pid_str)
-                    except Exception:
-                        pass
-                except subprocess.TimeoutExpired: #
-                    try:
-                        self.comfyui_process.kill()
-                        killed = True
-                        try:
-                            self.app.logger.warning("优雅终止超时，已强制结束，PID=%s", pid_str)
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        try:
-                            self.app.logger.error("强制结束失败: %s", str(e))
-                        except Exception:
-                            pass
-                        messagebox.showerror("错误", f"停止失败: {e}")
-        else:
-            # 2) 未跟踪到句柄：根据端口查找并强制终止对应进程
-            port = (self.app.custom_port.get() or "8188").strip()
-            pids = self._find_pids_by_port_safe(port)
-            try:
-                self.app.logger.info("未跟踪到句柄；端口 %s 的PID列表: %s", port, ", ".join(map(str, pids)) or "<空>")
-            except Exception:
-                pass
-            if pids:
-                try:
-                    self._kill_pids(pids)
-                    killed = True
-                    try:
-                        self.app.logger.info("已强制终止端口 %s 上的相关进程: %s", port, ", ".join(map(str, pids)))
-                    except Exception:
-                        pass
-                except Exception as e:
-                    try:
-                        self.app.logger.error("强制停止失败: %s", str(e))
-                    except Exception:
-                        pass
-                    messagebox.showerror("错误", f"强制停止失败: {e}")
-            else:
-                try:
-                    self.app.logger.warning("未找到端口 %s 上运行的进程，可能已外部关闭或端口设置不一致", port)
-                except Exception:
-                    pass
-                messagebox.showwarning("警告", f"未找到端口 {port} 上运行的进程")
+        return True
 
-        # 根据结果刷新按钮
-        if killed:
-            self.app.big_btn.set_state("idle")
-            self.app.big_btn.set_text("一键启动")
-            self.comfyui_process = None
-            try:
-                self.app.logger.info("停止流程完成：已关闭 ComfyUI")
-            except Exception:
-                pass
-        else:
-            # 若仍被判定为运行中，保持“停止”以避免误导
-            try:
-                reachable = self._is_http_reachable()
+    def stop_comfyui_sync(self):
+        try:
+            from core.runner_stop import stop as run_stop
+        except Exception:
+            return False
+        try:
+            if not (self.comfyui_process and self.comfyui_process.poll() is None):
                 try:
-                    self.app.logger.warning("停止未成功：端口可达=%s。可能原因：外部启动的实例、权限不足、端口配置不同。", str(reachable))
+                    self.app.stop_all_comfyui_instances()
                 except Exception:
                     pass
-                if reachable:
-                    self.app.big_btn.set_state("running")
-                    self.app.big_btn.set_text("停止")
-                else:
-                    self.app.big_btn.set_state("idle")
-                    self.app.big_btn.set_text("一键启动")
+        except Exception:
+            pass
+        killed = run_stop(self.app, self)
+        try:
+            import time
+            for _ in range(20):
+                still = False
+                try:
+                    if self.comfyui_process and self.comfyui_process.poll() is None:
+                        still = True
+                    else:
+                        from core.probe import is_http_reachable
+                        still = is_http_reachable(self.app)
+                except Exception:
+                    still = False
+                if not still:
+                    break
+                time.sleep(0.25)
+        except Exception:
+            pass
+        try:
+            running = False
+            if self.comfyui_process and self.comfyui_process.poll() is None:
+                running = True
+            else:
+                from core.probe import is_http_reachable
+                running = is_http_reachable(self.app)
+            if not running:
+                self.on_process_ended()
+            else:
+                self._refresh_running_status()
+        except Exception:
+            pass
+        return not running
+
+    def _show_error(self, title, msg):
+        try:
+            if getattr(self.app, 'headless', False):
+                try:
+                    self.app.logger.error(f"{title}: {msg}")
+                except Exception:
+                    pass
+                return
+            messagebox.showerror(title, msg)
+        except Exception:
+            try:
+                self.app.logger.error(f"{title}: {msg}")
             except Exception:
-                self.app.big_btn.set_state("idle")
-                self.app.big_btn.set_text("一键启动")
+                pass
 
     def _find_pids_by_port_safe(self, port_str): #
         # 解析端口并通过 psutil 或 netstat 查找 PID 列表
@@ -555,7 +367,9 @@ class ProcessManager:
                 if self.app._wmic_available:
                     # 避免路径访问异常导致整个方法中断
                     try:
-                        comfy_root = str(Path(self.app.config["paths"]["comfyui_path"]).resolve()).lower()
+                        paths = self.app.config.get("paths", {})
+                        base = Path(paths.get("comfyui_root") or ".").resolve()
+                        comfy_root = str((base / "ComfyUI").resolve()).lower()
                     except Exception:
                         comfy_root = None
                         
@@ -658,7 +472,7 @@ class ProcessManager:
 
         # 回退：端口对应的 PID 列表（严格的 TCP 状态筛选已在 netstat 解析内实现）
         try:
-            pids = self._find_pids_by_port_safe(port_str)
+            pids = find_pids_by_port_safe(port_str)
             return bool(pids)
         except Exception:
             return False
@@ -670,7 +484,7 @@ class ProcessManager:
             if self.comfyui_process and self.comfyui_process.poll() is None:
                 running = True
             else:
-                running = self._is_http_reachable()
+                running = is_http_reachable(self.app)
             if running:
                 self.app.big_btn.set_state("running")
                 self.app.big_btn.set_text("停止")
@@ -680,19 +494,42 @@ class ProcessManager:
         except Exception:
             pass
 
-    def monitor_process(self): #
-        while True:
+    def refresh_running_status_async(self): #
+        def _bg():
             try:
-                # 若处于关闭流程，则停止监控循环，避免销毁窗口前的 UI 冲突
-                if getattr(self.app, "_shutting_down", False):
-                    break
-                # 进程结束时，置空句柄并根据端口探测决定按钮显示
-                if self.comfyui_process and self.comfyui_process.poll() is not None:
-                    self.comfyui_process = None
-                self.app.root.after(0, self._refresh_running_status)
-                threading.Event().wait(2)
-            except:
-                break
+                running = False
+                try:
+                    if self.comfyui_process and self.comfyui_process.poll() is None:
+                        running = True
+                    else:
+                        running = is_http_reachable(self.app)
+                except Exception:
+                    running = False
+                def _ui():
+                    try:
+                        if running:
+                            self.app.big_btn.set_state("running")
+                            self.app.big_btn.set_text("停止")
+                        else:
+                            self.app.big_btn.set_state("idle")
+                            self.app.big_btn.set_text("一键启动")
+                    except Exception:
+                        pass
+                try:
+                    self.app.root.after(0, _ui)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        try:
+            import threading
+            threading.Thread(target=_bg, daemon=True).start()
+        except Exception:
+            pass
+
+    def monitor_process(self): #
+        from core.runner import monitor
+        monitor(self.app, self)
 
     def on_process_ended(self): #
         try:
@@ -702,7 +539,7 @@ class ProcessManager:
         self.comfyui_process = None
         # 根据端口探测决定显示“停止”或“一键启动”
         try:
-            if self._is_http_reachable():
+            if is_http_reachable(self.app):
                 self.app.big_btn.set_state("running")
                 self.app.big_btn.set_text("停止")
             else:
@@ -722,9 +559,9 @@ class ProcessManager:
         # 1) 通过端口查找（当前自定义端口）
         try:
             port = (self.app.custom_port.get() or "8188").strip()
-            for pid in self._find_pids_by_port_safe(port):
+            for pid in find_pids_by_port_safe(port):
                 try:
-                    if self._is_comfyui_pid(pid):
+                    if is_comfyui_pid(self.app, pid):
                         pids.add(pid)
                 except Exception:
                     pass
@@ -738,7 +575,7 @@ class ProcessManager:
                     if not pid:
                         continue
                     try:
-                        if self._is_comfyui_pid(int(pid)):
+                        if is_comfyui_pid(self.app, int(pid)):
                             pids.add(int(pid))
                     except Exception:
                         pass
@@ -751,14 +588,25 @@ class ProcessManager:
                 pids.discard(self.comfyui_process.pid)
         except Exception:
             pass
-        # 统一终止
+        if not pids:
+            try:
+                port = (self.app.custom_port.get() or "8188").strip()
+            except Exception:
+                port = "8188"
+            try:
+                cand = find_pids_by_port_safe(port)
+            except Exception:
+                cand = []
+            for pid in cand:
+                try:
+                    pids.add(int(pid))
+                except Exception:
+                    pass
         if pids:
             try:
-                # 统一调用 _kill_pids
-                self._kill_pids(list(pids))
+                kill_pids(self.app, list(pids))
                 killed = True
             except Exception:
-                # _kill_pids 内部已尽力终止，此处仅打印错误
                 try:
                     self.app.logger.error("在 stop_all_comfyui_instances 中统一终止进程失败")
                 except Exception:

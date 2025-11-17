@@ -1,7 +1,6 @@
 from pathlib import Path
 from urllib.parse import urlparse
 
-# Defaults used across the launcher
 PYPI_ALIYUN_URL = 'https://mirrors.aliyun.com/pypi/simple/'
 HF_MIRROR_URL_DEFAULT = 'https://hf-mirror.com'
 GITHUB_PROXY_DEFAULT_URL = 'https://gh-proxy.com/'
@@ -22,15 +21,8 @@ def build_github_endpoint(base_url: str) -> str:
 
 
 def update_pip_ini(python_exec_path: str, mode: str, index_url: str, pip_proxy: str, logger=None):
-    """Write pip.ini based on proxy mode.
-
-    - mode == 'none': remove index-url/trusted-host/proxy (delete file if empty)
-    - mode == 'aliyun': use Aliyun mirror with trusted-host
-    - mode == 'custom': use provided index_url and derived trusted-host
-    """
     try:
         py_path = Path(python_exec_path).resolve()
-        # pip.ini resides next to embedded python.exe
         py_root = py_path.parent if py_path.exists() else Path('python_embeded')
         pip_ini = py_root / 'pip.ini'
 
@@ -97,26 +89,15 @@ def update_pip_ini(python_exec_path: str, mode: str, index_url: str, pip_proxy: 
     except Exception:
         if logger:
             try:
-                logger.exception("应用 PyPI 代理到 pip.ini 时出错")
+                logger.exception("更新 pip.ini 过程出现异常")
             except Exception:
                 pass
 
-
 def apply_pip_proxy_settings(python_exec: str, pypi_proxy_mode: str, pypi_proxy_url: str, pip_proxy_url: str, logger=None):
-    """根据当前 PyPI 代理设置更新 python_embeded/pip.ini。
-    
-    Args:
-        python_exec: Python 可执行文件路径
-        pypi_proxy_mode: 代理模式 ('none', 'aliyun', 'custom')
-        pypi_proxy_url: 自定义 PyPI 镜像 URL
-        pip_proxy_url: pip 代理 URL
-        logger: 日志记录器
-    """
     try:
         mode = (pypi_proxy_mode or 'none').strip()
         url = (pypi_proxy_url or '').strip()
         pip_proxy = (pip_proxy_url or '').strip()
-        
         update_pip_ini(python_exec, mode, url, pip_proxy, logger)
     except Exception:
         if logger:

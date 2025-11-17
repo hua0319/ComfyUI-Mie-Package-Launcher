@@ -5,7 +5,7 @@ def build_about_tab(app, parent):
     """
     import os, webbrowser, tkinter as tk
     from PIL import Image, ImageTk, ImageDraw, ImageFile
-    import assets as ASSETS
+    from ui import assets_helper as ASSETS
 
     # 浅色配色
     c = app.COLORS
@@ -90,13 +90,15 @@ def build_about_tab(app, parent):
         ]),
         ("ComfyUI 整合包", [
             ("📁 夸克网盘", "https://pan.quark.cn/s/4b98f758d6d4"),
-            ("📁 百度网盘", "https://pan.baidu.com/s/1V4Lflv97rFK0vFZzCUfHMg?pwd=cj89"),
+            ("📁 百度网盘", "https://pan.baidu.com/s/1-shiphL-2RSt51RqyLBzGA?pwd=ukhx"),
         ]),
         ("模型库", [
             ("📁 夸克网盘", "https://pan.quark.cn/s/3be6eb0d7f65"),
+            ("📁 百度网盘", "https://pan.baidu.com/s/1tbd2wZ1doOkADB-SaSrGtQ?pwd=x6wh"),
         ]),
         ("工作流库", [
             ("📁 夸克网盘", "https://pan.quark.cn/s/59bafd8bf39d"),
+            ("📁 百度网盘", "https://pan.baidu.com/s/1Ya3XeqPIMU15RQd8Tie9FA?pwd=5r6r"),
         ]),
         ("知识库", [
             ("📘 飞书 Wiki", "https://dcn8q5lcfe3s.feishu.cn/wiki/IYHAwFhLviZIHBk7C7XccuJBn3c"),

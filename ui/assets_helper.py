@@ -7,27 +7,22 @@ def resolve_asset(filename: str) -> Path:
     """在多种运行环境中解析资源路径（PyInstaller/源码/当前目录）。"""
     candidates = []
     try:
-        # 1) 运行时临时目录（PyInstaller）
         candidates.append(Path(getattr(sys, '_MEIPASS', '')) / 'assets' / filename)
     except Exception:
         pass
     try:
-        # 2) 源码所在的 launcher 目录
         candidates.append(Path(__file__).resolve().parent / 'assets' / filename)
     except Exception:
         pass
     try:
-        # 3) 项目根目录下的 launcher 目录
         candidates.append(Path('launcher').resolve() / 'assets' / filename)
     except Exception:
         pass
     try:
-        # 4) 可执行文件所在目录（打包场景）
         candidates.append(Path(sys.executable).resolve().parent / 'assets' / filename)
     except Exception:
         pass
     try:
-        # 5) 当前工作目录下的 launcher 目录
         candidates.append(Path.cwd() / 'launcher' / 'assets' / filename)
     except Exception:
         pass
@@ -52,14 +47,12 @@ def resolve_asset_variants(filenames):
                 pass
         except Exception:
             pass
-    # 兜底返回第一个的解析结果
     try:
         return resolve_asset(filenames[0])
     except Exception:
         return Path(filenames[0])
 
 
-# ---------------- 图标解析辅助 ----------------
 def icon_base_paths():
     """收集用于查找图标的基础目录列表。"""
     bases = []
@@ -79,7 +72,6 @@ def icon_base_paths():
         bases.append(Path(sys.executable).resolve().parent)
     except Exception:
         pass
-    # 仅返回存在的路径
     present = []
     for b in bases:
         try:
@@ -91,7 +83,6 @@ def icon_base_paths():
 
 
 def icon_candidates(filename: str):
-    """基于基础目录生成图标候选路径列表。"""
     return [b / 'assets' / filename for b in icon_base_paths()]
 
 
@@ -104,7 +95,6 @@ def icon_candidates_png():
 
 
 def skip_icons() -> bool:
-    """检查是否跳过窗口图标设置。"""
     try:
         env = (os.environ.get('COMFYUI_LAUNCHER_SKIP_ICONS') or '').strip().lower() in ('1', 'true', 'yes', 'on')
     except Exception:
@@ -118,7 +108,6 @@ def skip_icons() -> bool:
 
 
 def enable_ico() -> bool:
-    """检查是否启用 .ico 的 iconbitmap 设置。"""
     try:
         env = (os.environ.get('COMFYUI_LAUNCHER_ENABLE_ICO') or '').strip().lower() in ('1', 'true', 'yes', 'on')
     except Exception:
@@ -130,11 +119,9 @@ def enable_ico() -> bool:
         file_flag = False
     return bool(env or file_flag)
 
-# ---------------- 图标应用 ----------------
+
 def apply_window_icons(root, logger=None):
-    """为 Tk root 应用窗口图标（ico/png），并在 Windows/macOS 上做额外处理。
-    依赖现有的 assets 辅助方法，集中封装图标设置以便主文件简化。
-    """
+    """为 Tk root 应用窗口图标（ico/png），并在 Windows/macOS 上做额外处理。"""
     skip = skip_icons()
     try:
         if skip and logger:
@@ -173,7 +160,6 @@ def apply_window_icons(root, logger=None):
         except Exception:
             pass
 
-    # PNG iconphoto
     png_candidates_list = icon_candidates_png()
     for p in png_candidates_list:
         if p.exists():
@@ -194,7 +180,6 @@ def apply_window_icons(root, logger=None):
             except Exception:
                 pass
 
-    # Windows taskbar icon fallback via WM_SETICON
     try:
         if os.name == 'nt':
             ico_path = None
@@ -234,7 +219,6 @@ def apply_window_icons(root, logger=None):
     except Exception:
         pass
 
-    # macOS Dock icon
     try:
         if sys.platform == 'darwin':
             try:

@@ -2,22 +2,24 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import font as tkfont
 from pathlib import Path
+from ui.constants import CARD_BG, INTERNAL_HEAD_LABEL_FONT
+from ui.helpers import compute_elided_path_text
 
 
 def build_quick_links_panel(app, container, path=None, rounded_button_cls=None):
     c = app.COLORS
     # 顶部一排：左侧路径，右侧“重设ComfyUI根目录”按钮
-    top_bar = tk.Frame(container, bg=app.CARD_BG)
+    top_bar = tk.Frame(container, bg=CARD_BG)
     top_bar.pack(fill=tk.X, padx=(4, 0), pady=(0, 6))
     if path:
         # 左侧：路径标题与值并排
-        left_path = tk.Frame(top_bar, bg=app.CARD_BG)
+        left_path = tk.Frame(top_bar, bg=CARD_BG)
         left_path.pack(side=tk.LEFT, fill=tk.X, expand=True)
         app.path_label_title = tk.Label(
             left_path,
             text="路径:",
-            bg=app.CARD_BG, fg=c["TEXT"],
-            font=app.INTERNAL_HEAD_LABEL_FONT
+            bg=CARD_BG, fg=c["TEXT"],
+            font=INTERNAL_HEAD_LABEL_FONT
         )
         app.path_label_title.pack(side=tk.LEFT, padx=(0, 8))
         try:
@@ -30,7 +32,7 @@ def build_quick_links_panel(app, container, path=None, rounded_button_cls=None):
         app.path_value_label = tk.Label(
             left_path,
             textvariable=app.path_value_var,
-            bg=app.CARD_BG, fg=c["TEXT"]
+            bg=CARD_BG, fg=c["TEXT"]
         )
         app.path_value_label.pack(side=tk.LEFT)
 
@@ -62,14 +64,27 @@ def build_quick_links_panel(app, container, path=None, rounded_button_cls=None):
             app.reset_root_btn = ttk.Button(left_path, text="重设ComfyUI根目录", command=app.reset_comfyui_path)
         app.reset_root_btn.pack(side=tk.LEFT, padx=(12, 0))
 
-        # 绑定尺寸变化事件以动态更新截断文本
-        def _on_resize(_evt=None):
+        def _schedule_elide(_evt=None):
             try:
-                app._update_path_label_elide()
+                try:
+                    if getattr(app, "_path_resize_after", None):
+                        app.root.after_cancel(app._path_resize_after)
+                except Exception:
+                    pass
+                def _do():
+                    try:
+                        app.path_value_var.set(compute_elided_path_text(app))
+                    except Exception:
+                        pass
+                    try:
+                        app._path_resize_after = None
+                    except Exception:
+                        pass
+                app._path_resize_after = app.root.after(50, _do)
             except Exception:
                 pass
-        top_bar.bind('<Configure>', _on_resize)
-        app.root.after(0, _on_resize)
+        top_bar.bind('<Configure>', _schedule_elide)
+        app.root.after(0, _schedule_elide)
     else:
         # 若无路径信息，保持按钮在顶栏右侧作为回退布局
         if rounded_button_cls is not None:
@@ -90,7 +105,7 @@ def build_quick_links_panel(app, container, path=None, rounded_button_cls=None):
         app.reset_root_btn.pack(side=tk.RIGHT)
 
     # 容器：自然高度的自适应网格
-    grid = tk.Frame(container, bg=app.CARD_BG)
+    grid = tk.Frame(container, bg=CARD_BG)
     grid.pack(fill=tk.X)
     app.quick_grid_frame = grid
 
@@ -107,7 +122,6 @@ def build_quick_links_panel(app, container, path=None, rounded_button_cls=None):
         app.quick_buttons.append(btn)
 
     def _relayout(_evt=None):
-        # 单行网格布局
         try:
             width = max(0, grid.winfo_width())
         except Exception:
@@ -118,5 +132,4 @@ def build_quick_links_panel(app, container, path=None, rounded_button_cls=None):
         for ci in range(cols):
             grid.grid_columnconfigure(ci, weight=1, uniform='quick')
 
-    grid.bind('<Configure>', _relayout)
     app.root.after(0, _relayout)

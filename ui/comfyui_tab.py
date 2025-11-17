@@ -5,7 +5,7 @@ def build_about_comfyui(app, parent):
     """
     import os, webbrowser, tkinter as tk
     from PIL import Image, ImageTk
-    import assets as ASSETS
+    from ui import assets_helper as ASSETS
 
     # 颜色（沿用浅色主题）
     c = app.COLORS

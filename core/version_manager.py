@@ -20,8 +20,8 @@ import threading
 import os
 import json
 from pathlib import Path
-from utils import run_hidden, have_git, is_git_repo
-from logger_setup import install_logging
+from utils.common import run_hidden, have_git, is_git_repo
+from utils.logging import install_logging
 
 # 统一从工具模块导入隐藏执行与 Git 检测方法
 
@@ -110,7 +110,8 @@ class VersionManager:
         try:
             cfg_path = Path('launcher/config.json')
             if cfg_path.exists():
-                cfg = json.load(open(cfg_path, 'r', encoding='utf-8')) or {}
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f) or {}
         except Exception:
             cfg = {}
         proxy_cfg = cfg.get('proxy_settings', {}) if isinstance(cfg, dict) else {}
@@ -237,12 +238,11 @@ class VersionManager:
         # 取消“远端最新”与比较状态的单独展示
 
         # 按钮组左对齐，刷新挨着且改名
-        btn_row = ttk.Frame(status_card, style='Card.TFrame')
-        btn_row.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
-        # GitHub 代理选择（位于更新按钮左侧）
-        ttk.Label(btn_row, text="GitHub代理:", style='Help.TLabel').pack(side=tk.LEFT, padx=(0, 6))
+        proxy_row = ttk.Frame(status_card, style='Card.TFrame')
+        proxy_row.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
+        ttk.Label(proxy_row, text="GitHub代理:", style='Help.TLabel').pack(side=tk.LEFT, padx=(0, 6))
         self.proxy_mode_combo = ttk.Combobox(
-            btn_row,
+            proxy_row,
             textvariable=self.proxy_mode_ui_var,
             values=["不使用", "gh-proxy", "自定义"],
             state='readonly',
@@ -250,8 +250,7 @@ class VersionManager:
         )
         self.proxy_mode_combo.pack(side=tk.LEFT, padx=(0, 8))
 
-        # 自定义代理前缀输入
-        self.proxy_url_entry = ttk.Entry(btn_row, textvariable=self.proxy_url_var, width=24)
+        self.proxy_url_entry = ttk.Entry(proxy_row, textvariable=self.proxy_url_var, width=24)
         self.proxy_url_entry.pack(side=tk.LEFT, padx=(0, 8))
         self._update_proxy_entry_state()
 
@@ -265,13 +264,31 @@ class VersionManager:
             self.save_proxy_settings()
         self.proxy_mode_combo.bind('<<ComboboxSelected>>', on_mode_change)
 
-        # 保存按钮引用，便于更新过程中禁用/启用
-        self.update_latest_button = ttk.Button(btn_row, text="更新到 master 最新提交", command=self.update_to_latest, style='Secondary.TButton')
+        actions_container = ttk.Frame(status_card, style='Card.TFrame')
+        actions_container.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
+        update_row = tk.Frame(actions_container, bg=self.COLORS["card"])
+        update_row.pack(anchor=tk.W, fill=tk.X)
+        tk.Label(update_row, text="升级策略:", bg=self.COLORS["card"], fg=self.COLORS["text"]).pack(side=tk.LEFT, padx=(0, 6))
+        try:
+            if hasattr(self.parent, 'stable_only_var') and self.parent.stable_only_var is not None:
+                tk.Checkbutton(update_row, text="仅更新到稳定版", variable=self.parent.stable_only_var,
+                               bg=self.COLORS["card"], fg=self.COLORS["text"],
+                               activebackground=self.COLORS["card"], activeforeground=self.COLORS["text"],
+                               selectcolor=self.COLORS["card"]).pack(side=tk.LEFT)
+            if hasattr(self.parent, 'requirements_sync_var') and self.parent.requirements_sync_var is not None:
+                tk.Checkbutton(update_row, text="模板库与前端版本遵循内核需求", variable=self.parent.requirements_sync_var,
+                               bg=self.COLORS["card"], fg=self.COLORS["text"],
+                               activebackground=self.COLORS["card"], activeforeground=self.COLORS["text"],
+                               selectcolor=self.COLORS["card"]).pack(side=tk.LEFT, padx=(10, 0))
+        except Exception:
+            pass
+        button_row = ttk.Frame(actions_container, style='Card.TFrame')
+        button_row.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
+        self.update_latest_button = ttk.Button(button_row, text="更新", command=self._on_update_button_clicked, style='Secondary.TButton')
         self.update_latest_button.pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(btn_row, text="切换到所选提交", command=self.checkout_selected_commit, style='Secondary.TButton').pack(side=tk.LEFT, padx=(0, 8))
-        # 保存“刷新历史（远端）”按钮引用，并改名
-        self.refresh_history_button = ttk.Button(btn_row, text="刷新提交历史（远端）", command=lambda: self.refresh_git_info(force_fetch=True), style='Secondary.TButton')
-        self.refresh_history_button.pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(button_row, text="切换到所选提交", command=self.checkout_selected_commit, style='Secondary.TButton').pack(side=tk.LEFT, padx=(0, 8))
+        self.refresh_history_button = ttk.Button(button_row, text="刷新提交历史（远端）", command=lambda: self.refresh_git_info(force_fetch=True), style='Secondary.TButton')
+        self.refresh_history_button.pack(side=tk.LEFT)
 
         history_card = ttk.Frame(parent, style='Card.TFrame', padding=12)
         history_card.pack(fill=tk.BOTH, expand=True)
@@ -315,6 +332,22 @@ class VersionManager:
         self.commit_tree.tag_configure('current',
                                     background=self.COLORS.get("badge_bg", "#E7F0FF"),
                                     foreground=self.COLORS.get("text", "#1F2328"))
+        # 稳定版高亮
+        try:
+            self.commit_tree.tag_configure('stable', background=self.COLORS.get('badge_bg', '#E7F0FF'))
+        except Exception:
+            pass
+        # 版本类型筛选器
+        filter_row = ttk.Frame(parent, style='Card.TFrame')
+        filter_row.pack(fill=tk.X, pady=(6, 8))
+        ttk.Label(filter_row, text="版本类型:", style='Help.TLabel').pack(side=tk.LEFT, padx=(0, 6))
+        combo = ttk.Combobox(filter_row, values=["全部", "稳定版", "测试版"], state='readonly', width=8)
+        combo.current(0)
+        def _on_filter(_evt=None):
+            val = combo.get()
+            self.filter_type = 'all' if val == '全部' else ('stable' if val == '稳定版' else 'test')
+            self.update_commit_tree()
+        combo.bind('<<ComboboxSelected>>', _on_filter)
     # ---------- Git 基础 ----------
     def run_git_command(self, args, capture_output=True):
         try:
@@ -403,7 +436,7 @@ class VersionManager:
                 base_commit = self.current_commit or "检查中..."
                 self._after(lambda: self.current_commit_var and self.current_commit_var.set(f"{base_commit}{self.current_update_status_text}"))
                 if hasattr(self, 'refresh_history_button'):
-                    self.refresh_history_button.config(state='disabled')
+                    self.refresh_history_button.config(text='刷新中…', state='disabled')
             except Exception:
                 pass
         # 进入刷新流程时更新“提交历史”加载状态指示
@@ -439,14 +472,29 @@ class VersionManager:
                     display_branch = branch
 
                 self._after(lambda: self.current_branch_var and self.current_branch_var.set(display_branch))
-                # 先设置基础的当前提交文本（状态稍后补充）
-                self._after(lambda: self.current_commit_var and self.current_commit_var.set(self.current_commit or commit))
+                # 先设置基础的当前提交文本（状态稍后补充），若为稳定版则显示标签
+                display_commit = self.current_commit or commit
+                try:
+                    svc = getattr(self.parent, 'services', None)
+                    if svc and getattr(svc, 'version', None):
+                        tags = svc.version._list_tags()
+                        for t in tags:
+                            if svc.version.is_stable_version(t):
+                                th = svc.version._tag_commit(t)
+                                if th and display_commit and th.startswith(display_commit):
+                                    display_commit = t
+                                    break
+                except Exception:
+                    pass
+                self._after(lambda: self.current_commit_var and self.current_commit_var.set(display_commit))
 
                 # 远端最新提交：优先使用 ls-remote（轻量网络查询），失败再回退到本地远端引用对比
                 # 若分离HEAD，则使用默认分支；否则使用当前分支
                 query_branch = branch if branch else (self.get_default_branch() or "main")
                 remote_hash_short = ""
                 status_text = ""
+                def _commit_matches(a, b):
+                    return bool(a and b and (a.startswith(b) or b.startswith(a)))
                 if query_branch:
                     # 如果用户点击“刷新历史”，允许一次性强制获取远端（更新远端引用与提交对象）
                     if force_fetch:
@@ -480,6 +528,15 @@ class VersionManager:
                                 target = proxied
                     except Exception:
                         pass
+                    cached = None
+                    try:
+                        cached = (getattr(self.parent, '_remote_branch_cache', {}) or {}).get(query_branch)
+                    except Exception:
+                        cached = None
+                    if cached and _commit_matches(self.current_commit, cached):
+                        status_text = "（已是最新）"
+                    elif cached:
+                        status_text = "（可更新）"
                     r_remote = self.run_git_command(['ls-remote', target, f'refs/heads/{query_branch}'])
                     if r_remote and r_remote.returncode == 0 and r_remote.stdout.strip():
                         line = r_remote.stdout.strip().split('\n')[0]
@@ -487,16 +544,22 @@ class VersionManager:
                         if parts and parts[0]:
                             remote_hash = parts[0]
                             remote_hash_short = remote_hash[:8]
-                            if self.current_commit and remote_hash.startswith(self.current_commit):
+                            if _commit_matches(self.current_commit, remote_hash):
                                 status_text = "（已是最新）"
                             else:
                                 status_text = "（可更新）"
+                            try:
+                                if not hasattr(self.parent, '_remote_branch_cache'):
+                                    setattr(self.parent, '_remote_branch_cache', {})
+                                getattr(self.parent, '_remote_branch_cache')[query_branch] = remote_hash
+                            except Exception:
+                                pass
                     else:
                         # 2) 回退：使用本地远端引用进行比较（无需 fetch）
                         r_remote_ref = self.run_git_command(['rev-parse', '--short', f'refs/remotes/origin/{query_branch}'])
                         if r_remote_ref and r_remote_ref.returncode == 0 and r_remote_ref.stdout.strip():
                             remote_hash_short = r_remote_ref.stdout.strip()
-                            if self.current_commit and remote_hash_short.startswith(self.current_commit):
+                            if _commit_matches(self.current_commit, remote_hash_short):
                                 status_text = "（已是最新）"
                             else:
                                 status_text = "（可更新）"
@@ -516,9 +579,35 @@ class VersionManager:
                 else:
                     status_text = ""
 
+                # 状态仅基于分支头与当前提交对比，不受“仅稳定版”偏好影响
                 # 将状态同步到“当前提交”显示与提交历史高亮行
                 self.current_update_status_text = status_text
-                self._after(lambda: self.current_commit_var and self.current_commit_var.set(f"{self.current_commit or commit}{status_text}"))
+                # 再次同步状态文本（包含稳定标签名）
+                display_commit2 = self.current_commit or commit
+                try:
+                    svc = getattr(self.parent, 'services', None)
+                    if svc and getattr(svc, 'version', None):
+                        tags = svc.version._list_tags()
+                        for t in tags:
+                            if svc.version.is_stable_version(t):
+                                th = svc.version._tag_commit(t)
+                                if th and display_commit2 and th.startswith(display_commit2):
+                                    display_commit2 = t
+                                    break
+                except Exception:
+                    pass
+                stable_mark = ""
+                try:
+                    svc = getattr(self.parent, 'services', None)
+                    if svc and getattr(svc, 'version', None):
+                        info2 = svc.version.get_latest_stable_kernel(force_refresh=False)
+                        cur2 = self.current_commit or commit
+                        full2 = info2.get('commit') or ''
+                        if full2 and cur2 and full2.startswith(cur2):
+                            stable_mark = "（最新稳定版）"
+                except Exception:
+                    stable_mark = ""
+                self._after(lambda: self.current_commit_var and self.current_commit_var.set(f"{display_commit2}{status_text}{stable_mark}"))
 
                 # 提交历史展示策略：
                 # - 用户点击“刷新历史”时，优先展示远端跟踪分支（需要fetch过）；
@@ -575,7 +664,7 @@ class VersionManager:
                 if force_fetch:
                     try:
                         if hasattr(self, 'refresh_history_button'):
-                            self._after(lambda: self.refresh_history_button.config(state='normal'))
+                            self._after(lambda: self.refresh_history_button.config(text='刷新提交历史（远端）', state='normal'))
                     except Exception:
                         pass
                 # 清除“提交历史”加载状态指示
@@ -600,6 +689,16 @@ class VersionManager:
         # 先清空
         for item in self.commit_tree.get_children():
             self.commit_tree.delete(item)
+        # 稳定性集合与过滤
+        filter_type = getattr(self, 'filter_type', 'all')
+        svc = getattr(self.parent, 'services', None)
+        stable_hashes = set()
+        try:
+            if svc and getattr(svc, 'version', None):
+                tags = svc.version._list_tags()
+                stable_hashes = set(filter(None, (svc.version._tag_commit(t) for t in tags if svc.version.is_stable_version(t))))
+        except Exception:
+            stable_hashes = set()
 
         for commit in self.commits:
             msg = commit['message']
@@ -609,6 +708,13 @@ class VersionManager:
                 status = self.current_update_status_text or ""
                 msg = f"{msg}  *当前{status}"
                 tags.append('current')
+            is_stable = bool(commit['full_hash'] in stable_hashes)
+            if filter_type == 'stable' and not is_stable:
+                continue
+            if filter_type == 'test' and is_stable:
+                continue
+            if is_stable:
+                tags.append('stable')
             self.commit_tree.insert(
                 '',
                 tk.END,
@@ -665,7 +771,7 @@ class VersionManager:
                     cur = self.current_commit or "未知"
                     self.current_commit_var.set(f"{cur}（更新中…）")
                 if getattr(self, 'update_latest_button', None):
-                    self.update_latest_button.configure(state='disabled')
+                    self.update_latest_button.configure(text='更新中…', state='disabled')
             except Exception:
                 pass
 
@@ -673,7 +779,7 @@ class VersionManager:
             try:
                 # 恢复按钮
                 if getattr(self, 'update_latest_button', None):
-                    self.update_latest_button.configure(state='normal')
+                    self.update_latest_button.configure(text='更新', state='normal')
                 # 更新完成后刷新主界面版本信息
                 if hasattr(self.parent, 'get_version_info'):
                     try:
@@ -901,6 +1007,62 @@ class VersionManager:
             self._after(_on_finish)
             return result_status
 
+    def _on_update_button_clicked(self):
+        try:
+            stable_only = False
+            if hasattr(self.parent, 'stable_only_var'):
+                try:
+                    stable_only = bool(self.parent.stable_only_var.get())
+                except Exception:
+                    stable_only = False
+            if stable_only:
+                res = self.parent.services.version.upgrade_latest(stable_only=True)
+                if res.get('error_code') == 'NO_STABLE':
+                    messagebox.showwarning("提示", "未检测到稳定版标签")
+                    return
+                tag = res.get('tag') or ''
+                suffix = f"（{tag}）" if tag else ""
+                messagebox.showinfo("成功", f"已更新到最新稳定版{suffix}")
+                try:
+                    if hasattr(self.parent, 'requirements_sync_var') and bool(self.parent.requirements_sync_var.get()):
+                        try:
+                            self.parent.services.update.update_frontend(False)
+                        except Exception:
+                            pass
+                        try:
+                            self.parent.services.update.update_templates(False)
+                        except Exception:
+                            pass
+                        try:
+                            self.parent.get_version_info(scope='selected')
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                self.refresh_git_info()
+            else:
+                if not messagebox.askyesno("确认", "该操作可能升级到非稳定版，是否继续？"):
+                    return
+                self.update_to_latest(confirm=True, notify=True)
+                try:
+                    if hasattr(self.parent, 'requirements_sync_var') and bool(self.parent.requirements_sync_var.get()):
+                        try:
+                            self.parent.services.update.update_frontend(False)
+                        except Exception:
+                            pass
+                        try:
+                            self.parent.services.update.update_templates(False)
+                        except Exception:
+                            pass
+                        try:
+                            self.parent.get_version_info(scope='selected')
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     # ---------- 代理与配置 ----------
     def _get_mode_ui_text(self, mode: str) -> str:
         if mode == 'gh-proxy':
@@ -1099,6 +1261,17 @@ class VersionManager:
         ttk.Label(info, text=f"日期: {commit['date']}", style='Help.TLabel').pack(anchor=tk.W)
         ttk.Label(info, text=f"作者: {commit['author']}", style='Help.TLabel').pack(anchor=tk.W,fill=tk.X)
         ttk.Label(info, text=f"提交信息: {commit['message']}", style='Help.TLabel').pack(anchor=tk.W)
+        # 稳定性标注
+        try:
+            is_stable = False
+            svc = getattr(self.parent, 'services', None)
+            if svc and getattr(svc, 'version', None):
+                tags = svc.version._list_tags()
+                stable_hashes = set(filter(None, (svc.version._tag_commit(t) for t in tags if svc.version.is_stable_version(t))))
+                is_stable = bool(commit['full_hash'] in stable_hashes)
+            ttk.Label(info, text=f"版本稳定性: {'稳定版' if is_stable else '测试版'}", style='Help.TLabel').pack(anchor=tk.W)
+        except Exception:
+            pass
 
         diff_frame = ttk.Frame(detail, style='Subtle.TFrame', padding=10)
         diff_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
