@@ -33,7 +33,8 @@ class ConfigManager:
                 "enable_fast_mode": False,
                 "enable_cors": True,
                 "listen_all": True,
-                "extra_args": ""
+                "extra_args": "",
+                "attention_mode": ""
             },
             "ui_settings": {
                 "window_width": 800,

@@ -35,6 +35,15 @@ def build_launch_params(app):
             except Exception:
                 extra_tokens = extra.split()
             cmd.extend(extra_tokens)
+        try:
+            attn_var = getattr(app, 'attention_mode', None)
+            attn = (attn_var.get() if attn_var else "").strip()
+            if attn:
+                tokens_set = set(extra_tokens) if 'extra_tokens' in locals() else set()
+                if attn not in tokens_set and attn not in cmd:
+                    cmd.append(attn)
+        except Exception:
+            pass
     except Exception:
         pass
     env = os.environ.copy()

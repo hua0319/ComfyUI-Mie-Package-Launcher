@@ -58,6 +58,7 @@ def build_layout(app):
     COMFY.build_about_comfyui(app, app.tab_frames["comfyui"])
     app.notebook.select(app.notebook.tabs()[0])
     app.current_tab_name = "launch"
+    
 
 def build_launch_tab(app, parent):
     c = app.COLORS

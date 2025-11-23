@@ -5,7 +5,7 @@ a = Analysis(
     ['comfyui_launcher_enhanced.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets/about_me.png', 'assets'), ('assets/comfyui.png', 'assets'), ('assets/rabbit.png', 'assets'), ('assets/rabbit.ico', 'assets')],
+    datas=[('assets/about_me.png', 'assets'), ('assets/comfyui.png', 'assets'), ('assets/rabbit.png', 'assets'), ('assets/rabbit.ico', 'assets'), ('build_parameters.json', '.')],
     hiddenimports=['threading', 'json', 'pathlib', 'subprocess', 'webbrowser', 'tempfile', 'atexit', 'tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog', 'core.version_manager', 'core.process_manager', 'config.manager', 'utils.logging', 'utils.paths', 'utils.net', 'utils.pip', 'utils.common', 'ui.assets_helper'],
     hookspath=[],
     hooksconfig={},

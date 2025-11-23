@@ -45,6 +45,7 @@ class ComfyUILauncherEnhanced:
         if self._initialized:
             return
         self._initialized = True
+        self._initializing = True
         self.root = tk.Tk()
         # 缓存 Windows wmic 可用性，避免重复尝试
         try:
@@ -196,6 +197,10 @@ class ComfyUILauncherEnhanced:
 
         # 载入其他设置
         self.load_settings()
+        try:
+            self._initializing = False
+        except Exception:
+            pass
 
         # 初始化版本管理器（传入完整的 ComfyUI 目录路径与 Python 路径）
         self.version_manager = VersionManager(
@@ -286,8 +291,8 @@ class ComfyUILauncherEnhanced:
         self.enable_cors = tk.BooleanVar(value=True)
         self.listen_all = tk.BooleanVar(value=True)
         self.custom_port = tk.StringVar(value="8188")
-        # 额外启动参数（用户自定义，将与其它选项一起拼接到命令）
         self.extra_launch_args = tk.StringVar(value="")
+        self.attention_mode = tk.StringVar(value="")
         self.hf_mirror_options = {"不使用镜像": "", "hf-mirror": "https://hf-mirror.com"}
         self.selected_hf_mirror = tk.StringVar(value="hf-mirror")
         self.comfyui_version = tk.StringVar(value="获取中…")
@@ -329,6 +334,7 @@ class ComfyUILauncherEnhanced:
         self.listen_all.trace_add("write", lambda *a: self.save_config())
         self.custom_port.trace_add("write", lambda *a: self.save_config())
         self.extra_launch_args.trace_add("write", lambda *a: self.save_config())
+        self.attention_mode.trace_add("write", lambda *a: self.save_config())
         # 版本偏好变更时持久化
         self.stable_only_var.trace_add("write", lambda *a: self.save_config())
         self.requirements_sync_var.trace_add("write", lambda *a: self.save_config())
@@ -378,7 +384,8 @@ class ComfyUILauncherEnhanced:
                     enable_fast_mode=_get(self.use_fast_mode, False),
                     enable_cors=_get(self.enable_cors, True),
                     listen_all=_get(self.listen_all, True),
-                    extra_args=_get(self.extra_launch_args, "")
+                    extra_args=(self.config.get("launch_options", {}).get("extra_args", "") if getattr(self, '_initializing', False) else _get(self.extra_launch_args, "")),
+                    attention_mode=(self.config.get("launch_options", {}).get("attention_mode", "") if getattr(self, '_initializing', False) else _get(self.attention_mode, ""))
                 )
                 self.services.config.set("proxy_settings.hf_mirror_mode", _get(self.selected_hf_mirror, "hf-mirror"))
                 try:
@@ -402,7 +409,8 @@ class ComfyUILauncherEnhanced:
                     enable_fast_mode=_get(self.use_fast_mode, False),
                     enable_cors=_get(self.enable_cors, True),
                     listen_all=_get(self.listen_all, True),
-                    extra_args=_get(self.extra_launch_args, "")
+                    extra_args=(self.config.get("launch_options", {}).get("extra_args", "") if getattr(self, '_initializing', False) else _get(self.extra_launch_args, "")),
+                    attention_mode=(self.config.get("launch_options", {}).get("attention_mode", "") if getattr(self, '_initializing', False) else _get(self.attention_mode, ""))
                 )
                 self.config_manager.set("proxy_settings.hf_mirror_mode", _get(self.selected_hf_mirror, "hf-mirror"))
                 try:
@@ -438,6 +446,10 @@ class ComfyUILauncherEnhanced:
         self.enable_cors.set(opt.get("enable_cors", True))
         self.listen_all.set(opt.get("listen_all", True))
         self.extra_launch_args.set(opt.get("extra_args", ""))
+        try:
+            self.attention_mode.set(opt.get("attention_mode", ""))
+        except Exception:
+            pass
 
     # ---------- 布局 ----------
     def build_layout(self):

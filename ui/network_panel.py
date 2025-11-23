@@ -27,6 +27,7 @@ def build_network_panel(app, form, rounded_button_cls=None):
     app.hf_mirror_entry = ttk.Entry(net_frame, textvariable=app.hf_mirror_url, width=26)
     app.hf_mirror_entry.grid(row=0, column=2, sticky='w', padx=(8, 0))
     app.hf_mirror_combobox.bind("<<ComboboxSelected>>", app.on_hf_mirror_selected)
+    
     try:
         app.on_hf_mirror_selected()
     except Exception:

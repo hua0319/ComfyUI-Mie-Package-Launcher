@@ -66,8 +66,52 @@ def build_about_launcher(app, parent):
     # 版本信息（小徽标样式）
     version_wrap = tk.Frame(container, bg=BG)
     version_wrap.grid(row=2, column=0, sticky="n")
+    ver = "v1.0.2"
+    suffix = ""
+    try:
+        import sys, os, json, time
+        candidates = []
+        try:
+            candidates.append(__import__('pathlib').Path(getattr(sys, '_MEIPASS', '')) / 'build_parameters.json')
+        except Exception:
+            pass
+        try:
+            candidates.append(__import__('pathlib').Path(sys.executable).resolve().parent / 'build_parameters.json')
+        except Exception:
+            pass
+        try:
+            candidates.append(__import__('pathlib').Path(__file__).resolve().parents[1] / 'build_parameters.json')
+        except Exception:
+            pass
+        try:
+            candidates.append(__import__('pathlib').Path.cwd() / 'build_parameters.json')
+        except Exception:
+            pass
+        params = None
+        for p in candidates:
+            try:
+                if p.exists():
+                    with open(p, 'r', encoding='utf-8') as f:
+                        params = json.load(f) or {}
+                    break
+            except Exception:
+                pass
+        if isinstance(params, dict):
+            ver = str(params.get('version', ver))
+            suffix = str(params.get('suffix', ''))
+        if not suffix:
+            try:
+                if getattr(sys, 'frozen', False):
+                    ts = int(os.path.getmtime(sys.executable))
+                    suffix = f" · 构建 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))}"
+                else:
+                    suffix = " · 调试运行"
+            except Exception:
+                suffix = ""
+    except Exception:
+        pass
     badge = tk.Label(
-        version_wrap, text="版本 v1.0.2", bg="#EEF2F7", fg=TEXT,
+        version_wrap, text=f"版本 {ver}{suffix}", bg="#EEF2F7", fg=TEXT,
         font=("Microsoft YaHei", 11, "bold"), padx=10, pady=4, bd=1, relief="solid"
     )
     badge.pack(pady=(0, 12))

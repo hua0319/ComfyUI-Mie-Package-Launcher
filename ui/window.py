@@ -31,6 +31,7 @@ def setup_window(app):
             app.root.configure(bg=COLORS.get("BG", "#FFFFFF"))
         except Exception:
             pass
+        
         THEME.configure_default_font(app.root, logger=getattr(app, 'logger', None))
         THEME.configure_styles(app.style, COLORS, logger=getattr(app, 'logger', None))
     except Exception:

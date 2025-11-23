@@ -7,6 +7,7 @@ def setup_variables(app):
     app.listen_all = tk.BooleanVar(value=True)
     app.custom_port = tk.StringVar(value="8188")
     app.extra_launch_args = tk.StringVar(value="")
+    app.attention_mode = tk.StringVar(value="")
     app.hf_mirror_options = {"不使用镜像": "", "hf-mirror": "https://hf-mirror.com"}
     app.selected_hf_mirror = tk.StringVar(value="hf-mirror")
     app.comfyui_version = tk.StringVar(value="获取中…")
@@ -48,6 +49,7 @@ def setup_variables(app):
     app.listen_all.trace_add("write", lambda *a: app.save_config())
     app.custom_port.trace_add("write", lambda *a: app.save_config())
     app.extra_launch_args.trace_add("write", lambda *a: app.save_config())
+    app.attention_mode.trace_add("write", lambda *a: app.save_config())
     default_hf_url = proxy_cfg.get("hf_mirror_url", "https://hf-mirror.com")
     app.hf_mirror_url = tk.StringVar(value=default_hf_url)
     try:

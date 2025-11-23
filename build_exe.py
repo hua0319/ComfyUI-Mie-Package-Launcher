@@ -6,6 +6,8 @@ ComfyUI启动器打包脚本
 import PyInstaller.__main__
 import os
 import shutil
+import json
+import time
 
 def build_simple_test():
     """构建简化测试exe文件"""
@@ -57,6 +59,7 @@ def build_exe():
         '--add-data=assets/comfyui.png;assets',
         '--add-data=assets/rabbit.png;assets',
         '--add-data=assets/rabbit.ico;assets',
+        '--add-data=build_parameters.json;.',
         '--hidden-import=threading',
         '--hidden-import=json',
         '--hidden-import=pathlib',
@@ -115,6 +118,25 @@ def build_exe():
                 break
     
     try:
+        bp_path = os.path.join(current_dir, 'build_parameters.json')
+        params = {}
+        try:
+            if os.path.exists(bp_path):
+                with open(bp_path, 'r', encoding='utf-8') as f:
+                    params = json.load(f) or {}
+        except Exception:
+            params = {}
+        now = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+        ver = params.get('version', 'v1.0.2')
+        params['version'] = ver
+        params['suffix'] = f' · 构建 {now}'
+        params['mode'] = 'release'
+        params['built_at'] = now
+        try:
+            with open(bp_path, 'w', encoding='utf-8') as f:
+                json.dump(params, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
         # 运行PyInstaller
         PyInstaller.__main__.run(args)
         
