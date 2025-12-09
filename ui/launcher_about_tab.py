@@ -5,6 +5,7 @@ def build_about_launcher(app, parent):
     与现有“关于我”“关于ComfyUI”保持视觉一致性与交互一致性。
     """
     import webbrowser, tkinter as tk
+    from tkinter import messagebox as MSG
     try:
         from PIL import Image, ImageTk
     except Exception:
@@ -140,6 +141,7 @@ def build_about_launcher(app, parent):
     ctas_wrap.grid(row=3, column=0, sticky="n", pady=(4, 8))
     ctas_wrap.grid_columnconfigure(0, weight=1, uniform="cta")
     ctas_wrap.grid_columnconfigure(1, weight=1, uniform="cta")
+    ctas_wrap.grid_columnconfigure(2, weight=1, uniform="cta")
 
     ctas = [
         ("🐙 代码仓库 GitHub", "https://github.com/MieMieeeee/ComfyUI-Mie-Package-Launcher"),
@@ -186,7 +188,74 @@ def build_about_launcher(app, parent):
         return btn
 
     for idx, (text, url) in enumerate(ctas):
-        make_cta(ctas_wrap, text, url, row=idx // 2, col=idx % 2)
+        make_cta(ctas_wrap, text, url, row=0, col=idx)
+
+    def _open_announcement(_=None):
+        try:
+            from pathlib import Path
+            p = Path.cwd() / 'launcher' / 'announcement_cache.txt'
+            txt = ''
+            try:
+                if p.exists():
+                    txt = p.read_text(encoding='utf-8', errors='ignore').strip()
+            except Exception:
+                txt = ''
+            if not txt:
+                txt = '暂无公告'
+            top = tk.Toplevel(root)
+            top.title('公告')
+            top.transient(root)
+            frm = tk.Frame(top)
+            frm.pack(fill=tk.BOTH, expand=True, padx=14, pady=12)
+            textw = tk.Text(frm, wrap='word', height=16)
+            textw.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            sb = tk.Scrollbar(frm, command=textw.yview)
+            sb.pack(side=tk.RIGHT, fill=tk.Y)
+            textw.configure(yscrollcommand=sb.set)
+            try:
+                textw.insert('1.0', txt)
+                textw.configure(state='disabled')
+            except Exception:
+                pass
+            btns = tk.Frame(top)
+            btns.pack(fill=tk.X, padx=14, pady=(0, 12))
+            def _close():
+                try:
+                    top.destroy()
+                except Exception:
+                    pass
+            close_btn = tk.Button(btns, text='关闭', command=_close)
+            close_btn.pack(side=tk.RIGHT)
+            try:
+                top.update_idletasks()
+                rw = root.winfo_width()
+                rh = root.winfo_height()
+                rx = root.winfo_rootx()
+                ry = root.winfo_rooty()
+                tw = max(560, top.winfo_reqwidth())
+                th = max(380, top.winfo_reqheight())
+                cx = rx + (rw - tw) // 2
+                cy = ry + (rh - th) // 2
+                top.geometry(f"{tw}x{th}+{max(0,cx)}+{max(0,cy)}")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    act = tk.Label(
+        ctas_wrap, text='📢 查看公告', bg=CTA_BG, fg=ACCENT,
+        font=("Microsoft YaHei", 14, "bold"),
+        padx=18, pady=12, cursor="hand2",
+        bd=1, relief="solid", highlightthickness=0
+    )
+    act.grid(row=0, column=2, sticky="ew", padx=10, pady=10)
+    act.bind("<Button-1>", _open_announcement)
+    act.bind("<Return>", _open_announcement)
+    act.configure(takefocus=1)
+    def _on_enter(_): act.configure(bg=CTA_HOVER_BG, fg=ACCENT_HOVER)
+    def _on_leave(_): act.configure(bg=CTA_BG, fg=ACCENT)
+    act.bind("<Enter>", _on_enter)
+    act.bind("<Leave>", _on_leave)
 
     # 填充剩余空间，确保整体居中观感
     container.grid_rowconfigure(4, weight=1)

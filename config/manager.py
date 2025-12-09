@@ -67,6 +67,11 @@ class ConfigManager:
                 "pypi_proxy_url": "https://mirrors.aliyun.com/pypi/simple/",
                 "hf_mirror_mode": "hf-mirror",
                 "hf_mirror_url": "https://hf-mirror.com"
+            },
+            "announcement": {
+                "enabled": True,
+                "source_url": "https://gitee.com/MieMieeeee/comfyui-mie-resources/raw/master/launcher/announcements/index.json",
+                "fallback_urls": []
             }
         }
     
@@ -106,6 +111,13 @@ class ConfigManager:
                         v = ps.get(k)
                         if isinstance(v, str):
                             ps[k] = v.strip().strip('`').strip()
+                    ann = self.config.setdefault("announcement", {})
+                    for k, v in default_config.get("announcement", {}).items():
+                        ann.setdefault(k, v)
+                    try:
+                        self.save_config(self.config)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
             except Exception as e:

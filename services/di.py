@@ -6,11 +6,12 @@ from services.update_service import UpdateService
 from services.git_service import GitService
 from services.network_service import NetworkService
 from services.runtime_service import RuntimeService
+from services.announcement_service import AnnouncementService
 
 
 class ServiceContainer:
     def __init__(self, process: ProcessService, version: VersionService, config: ConfigService,
-                 update: UpdateService, git: GitService, network: NetworkService, runtime: RuntimeService):
+                 update: UpdateService, git: GitService, network: NetworkService, runtime: RuntimeService, announcement: AnnouncementService):
         self.process = process
         self.version = version
         self.config = config
@@ -18,6 +19,7 @@ class ServiceContainer:
         self.git = git
         self.network = network
         self.runtime = runtime
+        self.announcement = announcement
 
     @classmethod
     def from_app(cls, app):
@@ -36,4 +38,5 @@ class ServiceContainer:
             git=GitService(app),
             network=NetworkService(app),
             runtime=RuntimeService(app),
+            announcement=AnnouncementService(app),
         )

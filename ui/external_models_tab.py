@@ -178,8 +178,8 @@ def build_external_models_tab(app, parent):
             return
         content, count, mapping, base_root = compose_yaml(base, is_default=True)
         out = target_yaml_path()
-        if count <= 0:
-            messagebox.showwarning("提示", "所选目录下未发现可映射的子文件夹")
+        if not out.parent.exists():
+            messagebox.showerror("错误", "ComfyUI 根目录不存在，无法写入映射文件")
             return
         old = ""
         try:
@@ -245,6 +245,8 @@ def build_external_models_tab(app, parent):
                 if base:
                     base_path_var.set(base)
                 populate_tree(mapping, base)
+            else:
+                populate_tree({}, "")
         except Exception:
             pass
 

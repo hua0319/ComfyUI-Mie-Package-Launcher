@@ -219,6 +219,19 @@ class ComfyUILauncherEnhanced:
         UI_BUILD_LAYOUT(self)
         threading.Thread(target=self.process_manager.monitor_process, daemon=True).start()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        try:
+            if getattr(self, 'services', None):
+                delay_ms = 1000
+                try:
+                    src = (self.config.get('announcement', {}) or {}).get('source_url')
+                    fb = len(((self.config.get('announcement', {}) or {}).get('fallback_urls') or []))
+                    if getattr(self, 'logger', None):
+                        self.logger.info('announcement: scheduled after UI build delay=%sms source=%s fallbacks=%d', delay_ms, src, fb)
+                except Exception:
+                    pass
+                self.root.after(delay_ms, lambda: self.services.announcement.show_if_available())
+        except Exception:
+            pass
 
     def apply_pip_proxy_settings(self):
         """根据当前 PyPI 代理设置更新 python_embeded/pip.ini（委托 Service 层）。"""
