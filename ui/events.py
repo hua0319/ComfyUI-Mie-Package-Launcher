@@ -38,7 +38,11 @@ def select_tab(app, name):
             app.version_manager.refresh_git_info(force_fetch=True)
             should_refresh_anyway = True
         elif name == 'launch':
-            should_refresh_anyway = True
+            if getattr(app, 'kernel_updated_flag', False):
+                should_refresh_anyway = True
+                app.kernel_updated_flag = False
+            else:
+                should_refresh_anyway = False
         if should_refresh_anyway:
             app.get_version_info(scope='all')
             try:

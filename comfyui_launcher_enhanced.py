@@ -91,9 +91,9 @@ class ComfyUILauncherEnhanced:
 
         # 基础配置与变量需尽早初始化，避免后续保护性路径检查时出现属性缺失
         try:
-            config_file = (Path.cwd() / "launcher" / "config.json").resolve()
+            config_file = (Path.cwd() / "launcher_config.json").resolve()
         except Exception:
-            config_file = Path("launcher/config.json")
+            config_file = Path("launcher_config.json")
         self.config_manager = ConfigManager(config_file, self.logger)
         self.config = self.config_manager.load_config()
         # 根据配置或文件开关切换调试模式与日志级别（优先使用 launcher/is_debug 文件）
@@ -355,6 +355,10 @@ class ComfyUILauncherEnhanced:
                 self.services.config.set("proxy_settings.hf_mirror_mode", _get(self.selected_hf_mirror, "hf-mirror"))
                 try:
                     self.services.config.set("paths.comfyui_root", str(Path(self.config.get("paths", {}).get("comfyui_root") or ".").resolve()))
+                    # 确保 python_path 也被同步，防止丢失
+                    pp = self.config.get("paths", {}).get("python_path")
+                    if pp:
+                        self.services.config.set("paths.python_path", pp)
                 except Exception:
                     pass
                 self.services.config.update_proxy_settings(
@@ -382,6 +386,9 @@ class ComfyUILauncherEnhanced:
                 self.config_manager.set("proxy_settings.hf_mirror_mode", _get(self.selected_hf_mirror, "hf-mirror"))
                 try:
                     self.config_manager.set("paths.comfyui_root", str(Path(self.config.get("paths", {}).get("comfyui_root") or ".").resolve()))
+                    pp = self.config.get("paths", {}).get("python_path")
+                    if pp:
+                        self.config_manager.set("paths.python_path", pp)
                 except Exception:
                     pass
                 try:

@@ -40,40 +40,50 @@ def refresh_version_info(app, scope: str = "all"):
                 app.template_version.set("获取中…")
         except Exception:
             pass
+    elif scope == "python_related":
+        for v in (app.frontend_version, app.template_version, app.python_version, app.torch_version):
+            try:
+                v.set("获取中…")
+            except Exception:
+                pass
     def worker():
         try:
             paths = app.config.get("paths", {}) if isinstance(app.config, dict) else {}
             base = Path(paths.get("comfyui_root") or ".").resolve()
             root = (base / "ComfyUI").resolve()
-            git_cmd, git_source_text = app.resolve_git()
-            repo_state = ""
-            if git_cmd is None:
-                repo_state = "未找到Git命令"
-            elif not root.exists():
-                repo_state = "ComfyUI未找到"
-            else:
-                try:
-                    r_repo = run_hidden([git_cmd, "rev-parse", "--is-inside-work-tree"], cwd=str(root), capture_output=True, text=True, timeout=5)
-                    repo_state = "Git正常" if (r_repo.returncode == 0 and r_repo.stdout.strip() == "true") else "非Git仓库"
-                except Exception:
-                    repo_state = "非Git仓库"
-            git_text_to_show = repo_state if repo_state in ("未找到Git命令", "非Git仓库", "ComfyUI未找到") else git_source_text
-            app.root.after(0, lambda: app.git_status.set(git_text_to_show))
-            def _update_git_controls():
-                status = app.git_status.get()
-                disable = status in ("非Git仓库", "ComfyUI未找到", "未找到Git命令")
-                try:
-                    if hasattr(app, 'core_chk'):
-                        app.core_chk.config(state='disabled' if disable else 'normal')
-                    if hasattr(app, 'front_chk'):
-                        app.front_chk.config(state='disabled' if disable else 'normal')
-                    if hasattr(app, 'tpl_chk'):
-                        app.tpl_chk.config(state='disabled' if disable else 'normal')
-                    if hasattr(app, 'batch_update_btn'):
-                        app.batch_update_btn.config(state='disabled' if disable else 'normal')
-                except:
-                    pass
-            app.root.after(0, _update_git_controls)
+            
+            # Git 检查逻辑
+            if scope != "python_related":
+                git_cmd, git_source_text = app.resolve_git()
+                repo_state = ""
+                if git_cmd is None:
+                    repo_state = "未找到Git命令"
+                elif not root.exists():
+                    repo_state = "ComfyUI未找到"
+                else:
+                    try:
+                        r_repo = run_hidden([git_cmd, "rev-parse", "--is-inside-work-tree"], cwd=str(root), capture_output=True, text=True, timeout=5)
+                        repo_state = "Git正常" if (r_repo.returncode == 0 and r_repo.stdout.strip() == "true") else "非Git仓库"
+                    except Exception:
+                        repo_state = "非Git仓库"
+                git_text_to_show = repo_state if repo_state in ("未找到Git命令", "非Git仓库", "ComfyUI未找到") else git_source_text
+                app.root.after(0, lambda: app.git_status.set(git_text_to_show))
+                def _update_git_controls():
+                    status = app.git_status.get()
+                    disable = status in ("非Git仓库", "ComfyUI未找到", "未找到Git命令")
+                    try:
+                        if hasattr(app, 'core_chk'):
+                            app.core_chk.config(state='disabled' if disable else 'normal')
+                        if hasattr(app, 'front_chk'):
+                            app.front_chk.config(state='disabled' if disable else 'normal')
+                        if hasattr(app, 'tpl_chk'):
+                            app.tpl_chk.config(state='disabled' if disable else 'normal')
+                        if hasattr(app, 'batch_update_btn'):
+                            app.batch_update_btn.config(state='disabled' if disable else 'normal')
+                    except:
+                        pass
+                app.root.after(0, _update_git_controls)
+
             core_needed = (scope == "all") or (scope == "core_only") or (scope == "selected" and app.update_core_var.get())
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
             futures = []
@@ -83,7 +93,7 @@ def refresh_version_info(app, scope: str = "all"):
                     futures.append(f)
                 except Exception:
                     pass
-            if scope == "all":
+            if scope == "all" or scope == "python_related":
                 def _python_ver():
                     try:
                         r = run_hidden([app.python_exec, "--version"], capture_output=True, text=True, timeout=10)
@@ -104,7 +114,7 @@ def refresh_version_info(app, scope: str = "all"):
                     except Exception:
                         app.root.after(0, lambda: app.torch_version.set("获取失败"))
                 _submit(_torch_ver)
-            if scope == "all" or scope == "front_only" or (scope == "selected" and app.update_frontend_var.get()):
+            if scope == "all" or scope == "front_only" or scope == "python_related" or (scope == "selected" and app.update_frontend_var.get()):
                 def _front_ver():
                     try:
                         ver = PIPUTILS.get_package_version("comfyui-frontend-package", app.python_exec, logger=app.logger)
@@ -115,7 +125,7 @@ def refresh_version_info(app, scope: str = "all"):
                     except Exception:
                         app.root.after(0, lambda: app.frontend_version.set("获取失败"))
                 _submit(_front_ver)
-            if scope == "all" or scope == "template_only" or (scope == "selected" and app.update_template_var.get()):
+            if scope == "all" or scope == "template_only" or scope == "python_related" or (scope == "selected" and app.update_template_var.get()):
                 def _tpl_ver():
                     try:
                         ver = PIPUTILS.get_package_version("comfyui-workflow-templates", app.python_exec, logger=app.logger)

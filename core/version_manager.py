@@ -954,6 +954,11 @@ class VersionManager:
                     except Exception:
                         pass
                 self._after(self.refresh_git_info)
+                # 设置标志位，通知主界面内核已变更
+                try:
+                    setattr(self.parent, 'kernel_updated_flag', True)
+                except Exception:
+                    pass
                 self._after(_on_finish)
                 try:
                     logging.getLogger("comfyui_launcher").info("更新到最新完成: branch=%s", branch)
@@ -1215,6 +1220,11 @@ class VersionManager:
                     if r and r.returncode == 0:
                         self._after(lambda: messagebox.showinfo("成功", f"已切换到 {commit_hash[:8]}"))
                         self.refresh_git_info()
+                        # 设置标志位，通知主界面内核已变更
+                        try:
+                            setattr(self.parent, 'kernel_updated_flag', True)
+                        except Exception:
+                            pass
                         try:
                             logging.getLogger("comfyui_launcher").info("切换提交成功: %s", commit_hash)
                         except Exception:

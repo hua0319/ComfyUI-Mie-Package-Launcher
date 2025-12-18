@@ -83,6 +83,25 @@ def resolve_base_root() -> Path:
 
 def resolve_python_exec(comfy_root: Path, configured_path: str) -> Path:
     try:
+        # 优先尝试使用配置的路径
+        if configured_path:
+            p = Path(configured_path)
+            # 如果是绝对路径且存在，直接使用
+            if p.is_absolute() and p.exists() and p.is_file():
+                return p.resolve()
+            # 尝试相对于 comfy_root 的父目录解析（因为 configured_path 可能是相对路径）
+            try:
+                base = comfy_root.resolve().parent
+                p_rel = base / configured_path
+                if p_rel.exists() and p_rel.is_file():
+                    return p_rel.resolve()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 回退到默认逻辑
+    try:
         base = comfy_root.resolve().parent
     except Exception:
         base = Path(".").resolve()

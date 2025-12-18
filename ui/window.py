@@ -7,7 +7,14 @@ from ui.constants import COLORS
 def setup_window(app):
     try:
         app.root.title("ComfyUI启动器 - 黎黎原上咩")
-        app.root.geometry("1250x860")
+        # 增加默认高度以适应新增的路径配置区域
+        # 尝试使用屏幕高度的 85% 或默认 1040，取较小值以防溢出
+        screen_height = app.root.winfo_screenheight()
+        target_height = 1040
+        if screen_height < 1150:
+            target_height = min(1040, screen_height - 60)
+        
+        app.root.geometry(f"1250x{target_height}")
         app.root.minsize(1100, 700)
         try:
             if os.name == 'nt':

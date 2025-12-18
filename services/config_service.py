@@ -7,6 +7,7 @@ from config.manager import ConfigManager
 class ConfigService(IConfigService):
     def __init__(self, config_file: Path, logger=None):
         self.cm = ConfigManager(config_file, logger)
+        self.cm.load_config()
 
     def load(self) -> dict:
         return self.cm.load_config()
