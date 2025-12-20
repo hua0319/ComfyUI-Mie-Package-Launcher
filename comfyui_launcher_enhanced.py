@@ -91,9 +91,9 @@ class ComfyUILauncherEnhanced:
 
         # 基础配置与变量需尽早初始化，避免后续保护性路径检查时出现属性缺失
         try:
-            config_file = (Path.cwd() / "launcher_config.json").resolve()
+            config_file = (Path.cwd() / "launcher" / "config.json").resolve()
         except Exception:
-            config_file = Path("launcher_config.json")
+            config_file = Path("launcher/config.json")
         self.config_manager = ConfigManager(config_file, self.logger)
         self.config = self.config_manager.load_config()
         # 根据配置或文件开关切换调试模式与日志级别（优先使用 launcher/is_debug 文件）
