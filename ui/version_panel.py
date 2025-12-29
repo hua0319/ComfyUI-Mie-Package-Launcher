@@ -5,13 +5,11 @@ from ui.constants import CARD_BG, INTERNAL_HEAD_LABEL_FONT, BODY_FONT
 
 def build_version_panel(app, container, rounded_button_cls=None):
     c = app.COLORS
-
-    # —— 当前版本 ——
-    tk.Label(container, text="当前版本:", bg=CARD_BG, fg=c["TEXT"],
-             font=INTERNAL_HEAD_LABEL_FONT).pack(anchor='w')
     current_frame = tk.Frame(container, bg=CARD_BG)
     current_frame.pack(fill=tk.X, pady=(6, 0))
+    tk.Label(current_frame, text="当前版本:", bg=CARD_BG, fg=c["TEXT"], font=INTERNAL_HEAD_LABEL_FONT).pack(anchor='w')
 
+    # 版本列表
     items = [("内核", app._ensure_stringvar('comfyui_version')),
              ("前端", app._ensure_stringvar('frontend_version')),
              ("模板库", app._ensure_stringvar('template_version')),

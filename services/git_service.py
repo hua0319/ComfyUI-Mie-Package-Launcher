@@ -117,3 +117,32 @@ class GitService:
                 pass
         except Exception:
             pass
+
+    def fix_unsafe_repo(self, repo_path: str):
+        try:
+            if not repo_path:
+                return
+            # 尝试使用已解析的git，如果未解析则使用 "git"
+            git_exe = getattr(self.app, 'git_path', None) or "git"
+            
+            # 检查 git status 看来判断是否遇到 dubious ownership
+            # 使用 rev-parse --git-dir 可能更快，但 dubious ownership 通常在任何操作时都会触发
+            r = run_hidden([git_exe, "status"], cwd=repo_path, capture_output=True, text=True, timeout=5)
+            
+            # 检查错误信息
+            stderr = (r.stderr or "").lower()
+            stdout = (r.stdout or "").lower()
+            if "dubious ownership" in stderr or "dubious ownership" in stdout:
+                try:
+                    if getattr(self.app, 'logger', None):
+                        self.app.logger.info(f"Git安全修复: 检测到所有权问题，尝试添加 safe.directory {repo_path}")
+                except Exception:
+                    pass
+                
+                # 规范化路径，git config 需要 forward slashes
+                safe_path = str(Path(repo_path).resolve()).replace("\\", "/")
+                
+                # 执行修复
+                run_hidden([git_exe, "config", "--global", "--add", "safe.directory", safe_path], timeout=5)
+        except Exception:
+            pass

@@ -106,7 +106,6 @@ def build_launch_tab(app, parent):
     except Exception:
         _path = str(Path("ComfyUI").resolve())
     QUICK.build_quick_links_panel(app, quick_card.get_body(), path=_path, rounded_button_cls=RoundedButton)
-    app.get_version_info()
 
 def build_path_config_panel(app, parent, button_class):
     """构建路径配置面板"""

@@ -30,23 +30,24 @@ def select_tab(app, name):
                 pass
         app._vm_embedded = True
     try:
-        import time as _t
-        now = _t.time()
-        last = getattr(app, '_last_version_refresh_ts', 0.0)
-        should_refresh_anyway = (now - last) > 30.0
+        should_refresh_anyway = False
         if name == 'version' and hasattr(app, 'version_manager'):
-            app.version_manager.refresh_git_info(force_fetch=True)
-            should_refresh_anyway = True
+            if not getattr(app, '_version_tab_refreshed_once', False):
+                app.version_manager.refresh_git_info(force_fetch=True)
+                should_refresh_anyway = True
         elif name == 'launch':
             if getattr(app, 'kernel_updated_flag', False):
                 should_refresh_anyway = True
                 app.kernel_updated_flag = False
             else:
                 should_refresh_anyway = False
+        else:
+            should_refresh_anyway = False
         if should_refresh_anyway:
             app.get_version_info(scope='all')
             try:
-                setattr(app, '_last_version_refresh_ts', now)
+                if name == 'version':
+                    setattr(app, '_version_tab_refreshed_once', True)
             except Exception:
                 pass
     except Exception:

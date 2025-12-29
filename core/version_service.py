@@ -63,11 +63,21 @@ def refresh_version_info(app, scope: str = "all"):
                 else:
                     try:
                         r_repo = run_hidden([git_cmd, "rev-parse", "--is-inside-work-tree"], cwd=str(root), capture_output=True, text=True, timeout=5)
+                        if r_repo.returncode != 0 and "dubious ownership" in (getattr(r_repo, 'stderr', '') or ""):
+                            try:
+                                if getattr(app, 'services', None) and getattr(app.services, 'git', None):
+                                    app.services.git.fix_unsafe_repo(str(root))
+                                    r_repo = run_hidden([git_cmd, "rev-parse", "--is-inside-work-tree"], cwd=str(root), capture_output=True, text=True, timeout=5)
+                            except Exception:
+                                pass
                         repo_state = "Git正常" if (r_repo.returncode == 0 and r_repo.stdout.strip() == "true") else "非Git仓库"
                     except Exception:
                         repo_state = "非Git仓库"
                 git_text_to_show = repo_state if repo_state in ("未找到Git命令", "非Git仓库", "ComfyUI未找到") else git_source_text
-                app.root.after(0, lambda: app.git_status.set(git_text_to_show))
+                try:
+                    app.root.after(0, lambda: app.git_status.set(git_text_to_show))
+                except Exception:
+                    pass
                 def _update_git_controls():
                     status = app.git_status.get()
                     disable = status in ("非Git仓库", "ComfyUI未找到", "未找到Git命令")
@@ -82,7 +92,10 @@ def refresh_version_info(app, scope: str = "all"):
                             app.batch_update_btn.config(state='disabled' if disable else 'normal')
                     except:
                         pass
-                app.root.after(0, _update_git_controls)
+                try:
+                    app.root.after(0, _update_git_controls)
+                except Exception:
+                    pass
 
             core_needed = (scope == "all") or (scope == "core_only") or (scope == "selected" and app.update_core_var.get())
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
@@ -93,53 +106,104 @@ def refresh_version_info(app, scope: str = "all"):
                     futures.append(f)
                 except Exception:
                     pass
+            try:
+                if getattr(app, 'logger', None):
+                    app.logger.info("版本任务: core_needed=%s root_exists=%s git_path=%s", str(core_needed), str(root.exists()), str(bool(app.git_path)))
+            except Exception:
+                pass
             if scope == "all" or scope == "python_related":
                 def _python_ver():
                     try:
                         r = run_hidden([app.python_exec, "--version"], capture_output=True, text=True, timeout=10)
                         if r.returncode == 0:
-                            app.root.after(0, lambda v=r.stdout.strip().replace("Python ", ""): app.python_version.set(v))
+                            try:
+                                app.root.after(0, lambda v=r.stdout.strip().replace("Python ", ""): app.python_version.set(v))
+                            except Exception:
+                                pass
                         else:
-                            app.root.after(0, lambda: app.python_version.set("获取失败"))
+                            try:
+                                app.root.after(0, lambda: app.python_version.set("获取失败"))
+                            except Exception:
+                                pass
                     except Exception:
-                        app.root.after(0, lambda: app.python_version.set("获取失败"))
+                        app.ui_post(lambda: app.python_version.set("获取失败"))
                 _submit(_python_ver)
                 def _torch_ver():
                     try:
                         r = run_hidden([app.python_exec, "-c", "import torch;print(torch.__version__)"], capture_output=True, text=True, timeout=10)
                         if r.returncode == 0:
-                            app.root.after(0, lambda v=r.stdout.strip(): app.torch_version.set(v))
+                            try:
+                                app.root.after(0, lambda v=r.stdout.strip(): app.torch_version.set(v))
+                            except Exception:
+                                pass
                         else:
-                            app.root.after(0, lambda: app.torch_version.set("未安装"))
+                            try:
+                                app.root.after(0, lambda: app.torch_version.set("未安装"))
+                            except Exception:
+                                pass
                     except Exception:
-                        app.root.after(0, lambda: app.torch_version.set("获取失败"))
+                        try:
+                            app.root.after(0, lambda: app.torch_version.set("获取失败"))
+                        except Exception:
+                            pass
                 _submit(_torch_ver)
             if scope == "all" or scope == "front_only" or scope == "python_related" or (scope == "selected" and app.update_frontend_var.get()):
                 def _front_ver():
                     try:
                         ver = PIPUTILS.get_package_version("comfyui-frontend-package", app.python_exec, logger=app.logger)
                         if ver:
-                            app.root.after(0, lambda v=ver: app.frontend_version.set(v))
+                            try:
+                                app.root.after(0, lambda v=ver: app.frontend_version.set(v))
+                            except Exception:
+                                pass
                         else:
-                            app.root.after(0, lambda: app.frontend_version.set("未安装"))
+                            try:
+                                app.root.after(0, lambda: app.frontend_version.set("未安装"))
+                            except Exception:
+                                pass
                     except Exception:
-                        app.root.after(0, lambda: app.frontend_version.set("获取失败"))
+                        try:
+                            app.root.after(0, lambda: app.frontend_version.set("获取失败"))
+                        except Exception:
+                            pass
                 _submit(_front_ver)
             if scope == "all" or scope == "template_only" or scope == "python_related" or (scope == "selected" and app.update_template_var.get()):
                 def _tpl_ver():
                     try:
                         ver = PIPUTILS.get_package_version("comfyui-workflow-templates", app.python_exec, logger=app.logger)
                         if ver:
-                            app.root.after(0, lambda v=ver: app.template_version.set(v))
+                            try:
+                                app.root.after(0, lambda v=ver: app.template_version.set(v))
+                            except Exception:
+                                pass
                         else:
-                            app.root.after(0, lambda: app.template_version.set("未安装"))
+                            try:
+                                app.root.after(0, lambda: app.template_version.set("未安装"))
+                            except Exception:
+                                pass
                     except Exception:
-                        app.root.after(0, lambda: app.template_version.set("获取失败"))
+                        try:
+                            app.root.after(0, lambda: app.template_version.set("获取失败"))
+                        except Exception:
+                            pass
                 _submit(_tpl_ver)
             if core_needed and root.exists() and app.git_path:
                 def _core_ver():
                     try:
+                        try:
+                            if getattr(app, 'logger', None):
+                                app.logger.info("内核版本: describe 开始 cwd=%s git=%s", str(root), str(app.git_path))
+                        except Exception:
+                            pass
                         r = run_hidden([app.git_path, "describe", "--tags", "--abbrev=0"], cwd=str(root), capture_output=True, text=True, timeout=8)
+                        if r.returncode != 0 and "dubious ownership" in (getattr(r, 'stderr', '') or ""):
+                            try:
+                                if getattr(app, 'services', None) and getattr(app.services, 'git', None):
+                                    app.services.git.fix_unsafe_repo(str(root))
+                                    r = run_hidden([app.git_path, "describe", "--tags", "--abbrev=0"], cwd=str(root), capture_output=True, text=True, timeout=8)
+                            except Exception:
+                                pass
+                        
                         if r.returncode != 0:
                             try:
                                 target_url = None
@@ -169,14 +233,47 @@ def refresh_version_info(app, scope: str = "all"):
                                 except Exception:
                                     label = ""
                                 app.comfyui_version.set(f"{tag}（{commit}）{label}")
-                            app.root.after(0, _set)
+                            try:
+                                app.root.after(0, _set)
+                            except Exception:
+                                pass
                         else:
-                            app.root.after(0, lambda: app.comfyui_version.set("未找到"))
+                            try:
+                                r2 = run_hidden([app.git_path, "rev-parse", "--short", "HEAD"], cwd=str(root), capture_output=True, text=True, timeout=6)
+                                commit = r2.stdout.strip() if r2.returncode == 0 else ""
+                                if commit:
+                                    try:
+                                        app.root.after(0, lambda c=commit: app.comfyui_version.set(f"（{c}）"))
+                                    except Exception:
+                                        pass
+                                else:
+                                    try:
+                                        app.root.after(0, lambda: app.comfyui_version.set("未找到"))
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                try:
+                                    app.root.after(0, lambda: app.comfyui_version.set("未找到"))
+                                except Exception:
+                                    pass
                     except Exception:
-                        app.root.after(0, lambda: app.comfyui_version.set("未找到"))
+                        try:
+                            app.root.after(0, lambda: app.comfyui_version.set("未找到"))
+                        except Exception:
+                            pass
                 _submit(_core_ver)
             elif core_needed:
-                app.root.after(0, lambda: app.comfyui_version.set("ComfyUI未找到"))
+                try:
+                    msg = "未找到Git命令" if not app.git_path else ("ComfyUI未找到" if not root.exists() else "未找到")
+                    try:
+                        app.root.after(0, lambda m=msg: app.comfyui_version.set(m))
+                    except Exception:
+                        pass
+                except Exception:
+                    try:
+                        app.root.after(0, lambda: app.comfyui_version.set("未找到"))
+                    except Exception:
+                        pass
             try:
                 executor.shutdown(wait=False)
             except Exception:

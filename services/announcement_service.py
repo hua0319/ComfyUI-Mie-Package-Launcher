@@ -11,6 +11,7 @@ class AnnouncementService:
         self._built_in_sources = [
             "https://gitee.com/MieMieeeee/comfyui-mie-resources/raw/master/launcher/announcements/index.json",
         ]
+        self._last_data = None
 
     def _log(self, level: str, msg: str, *args):
         logger = getattr(self.app, 'logger', None)
@@ -396,120 +397,65 @@ class AnnouncementService:
         self._log('info', 'announcement: start check enabled=%s', enabled)
         if not enabled:
             return
-        data = self.fetch()
-        if not data:
-            try:
-                cache = self._get_cache_file()
-                if cache.exists():
-                    txt = cache.read_text(encoding="utf-8", errors="ignore").strip()
-                    if txt:
-                        self._log('info', 'announcement: using cache for popup size=%d', len(txt))
-                        from tkinter import messagebox
-                        messagebox.showinfo("公告", txt)
-                    else:
-                        try:
-                            (Path.cwd() / 'launcher' / 'announcement_debug.log').write_text('no_data_and_empty_cache', encoding='utf-8')
-                        except Exception:
-                            pass
-                        self._log('warning', 'announcement: no data and cache empty')
-            except Exception:
-                pass
-            return
-        rules = data.get("rules") or {}
-        self._log('debug', 'announcement: rules=%s', rules)
-        if rules and not self._is_allowed(rules):
-            try:
-                (Path.cwd() / 'launcher' / 'announcement_debug.log').write_text('blocked_by_rules', encoding='utf-8')
-            except Exception:
-                pass
-            self._log('info', 'announcement: blocked by rules')
-            return
-        aid = self._compute_id(data)
-        try:
-            seen = self._load_seen()
-            if aid and aid in seen:
-                self._log('info', 'announcement: already seen id=%s', aid[:8])
+        import threading
+        def worker():
+            data = self.fetch()
+            if not data:
+                try:
+                    cache = self._get_cache_file()
+                    if cache.exists():
+                        txt = cache.read_text(encoding="utf-8", errors="ignore").strip()
+                        if txt:
+                            self._log('info', 'announcement: using cache for popup size=%d', len(txt))
+                            def _show_cache():
+                                try:
+                                    from tkinter import messagebox
+                                    messagebox.showinfo("公告", txt)
+                                except Exception:
+                                    pass
+                            try:
+                                self.app.root.after(0, _show_cache)
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                (Path.cwd() / 'launcher' / 'announcement_debug.log').write_text('no_data_and_empty_cache', encoding='utf-8')
+                            except Exception:
+                                pass
+                            self._log('warning', 'announcement: no data and cache empty')
+                except Exception:
+                    pass
                 return
-        except Exception:
-            pass
-        try:
-            mf = self._get_seen_file().parent / 'announcement_muted.json'
-            if mf.exists():
-                lst = json.loads(mf.read_text(encoding='utf-8')) or []
-                if aid and aid in lst:
-                    self._log('info', 'announcement: muted id=%s', aid[:8])
+            rules = data.get("rules") or {}
+            self._log('debug', 'announcement: rules=%s', rules)
+            if rules and not self._is_allowed(rules):
+                try:
+                    (Path.cwd() / 'launcher' / 'announcement_debug.log').write_text('blocked_by_rules', encoding='utf-8')
+                except Exception:
+                    pass
+                self._log('info', 'announcement: blocked by rules')
+                return
+            aid = self._compute_id(data)
+            try:
+                seen = self._load_seen()
+                if aid and aid in seen:
+                    self._log('info', 'announcement: already seen id=%s', aid[:8])
                     return
-        except Exception:
-            pass
-        try:
-            import tkinter as tk
+            except Exception:
+                pass
+            try:
+                mf = self._get_seen_file().parent / 'announcement_muted.json'
+                if mf.exists():
+                    lst = json.loads(mf.read_text(encoding='utf-8')) or []
+                    if aid and aid in lst:
+                        self._log('info', 'announcement: muted id=%s', aid[:8])
+                        return
+            except Exception:
+                pass
             title = data.get("title") or "公告"
             content = data.get("content") or ""
-            self._log('info', 'announcement: show title=%s size=%d source=%s', title, len(content), data.get('source'))
-            top = tk.Toplevel(self.app.root)
-            top.title(title)
-            top.transient(self.app.root)
-            top.grab_set()
-            frm = tk.Frame(top)
-            frm.pack(fill=tk.BOTH, expand=True, padx=14, pady=12)
-            txt = tk.Text(frm, wrap='word', height=16)
-            txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            sb = tk.Scrollbar(frm, command=txt.yview)
-            sb.pack(side=tk.RIGHT, fill=tk.Y)
-            txt.configure(yscrollcommand=sb.set)
             try:
-                txt.insert('1.0', content)
-                txt.configure(state='disabled')
-            except Exception:
-                pass
-            btns = tk.Frame(top)
-            btns.pack(fill=tk.X, padx=14, pady=(0, 12))
-            def _ack():
-                try:
-                    if aid:
-                        self._mark_seen(aid)
-                        self._log('debug', 'announcement: marked seen id=%s', aid[:8])
-                except Exception:
-                    pass
-                try:
-                    top.destroy()
-                except Exception:
-                    pass
-            def _mute():
-                try:
-                    if aid:
-                        mf = self._get_seen_file().parent / 'announcement_muted.json'
-                        lst = []
-                        try:
-                            if mf.exists():
-                                lst = json.loads(mf.read_text(encoding='utf-8')) or []
-                        except Exception:
-                            lst = []
-                        if aid not in lst:
-                            lst.append(aid)
-                            mf.write_text(json.dumps(lst, ensure_ascii=False, indent=2), encoding='utf-8')
-                        self._log('info', 'announcement: muted id=%s', aid[:8])
-                except Exception:
-                    pass
-                try:
-                    top.destroy()
-                except Exception:
-                    pass
-            a = tk.Button(btns, text='知道了', command=_ack)
-            a.pack(side=tk.RIGHT, padx=(6, 0))
-            m = tk.Button(btns, text='不再弹出', command=_mute)
-            m.pack(side=tk.RIGHT)
-            try:
-                top.update_idletasks()
-                rw = self.app.root.winfo_width()
-                rh = self.app.root.winfo_height()
-                rx = self.app.root.winfo_rootx()
-                ry = self.app.root.winfo_rooty()
-                tw = max(560, top.winfo_reqwidth())
-                th = max(380, top.winfo_reqheight())
-                cx = rx + (rw - tw) // 2
-                cy = ry + (rh - th) // 2
-                top.geometry(f"{tw}x{th}+{max(0,cx)}+{max(0,cy)}")
+                self._last_data = data
             except Exception:
                 pass
             try:
@@ -518,5 +464,143 @@ class AnnouncementService:
                 self._log('debug', 'announcement: cache updated size=%d', len(content))
             except Exception:
                 pass
+            def _show_popup():
+                try:
+                    import tkinter as tk
+                    self._log('info', 'announcement: show title=%s size=%d source=%s', title, len(content), data.get('source'))
+                    top = tk.Toplevel(self.app.root)
+                    top.title(title)
+                    top.transient(self.app.root)
+                    frm = tk.Frame(top)
+                    frm.pack(fill=tk.BOTH, expand=True, padx=14, pady=12)
+                    txtw = tk.Text(frm, wrap='word', height=16)
+                    txtw.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                    sb = tk.Scrollbar(frm, command=txtw.yview)
+                    sb.pack(side=tk.RIGHT, fill=tk.Y)
+                    txtw.configure(yscrollcommand=sb.set)
+                    try:
+                        txtw.insert('1.0', content)
+                        txtw.configure(state='disabled')
+                    except Exception:
+                        pass
+                    btns = tk.Frame(top)
+                    btns.pack(fill=tk.X, padx=14, pady=(0, 12))
+                    def _ack():
+                        try:
+                            if aid:
+                                self._mark_seen(aid)
+                                self._log('debug', 'announcement: marked seen id=%s', aid[:8])
+                        except Exception:
+                            pass
+                        try:
+                            top.destroy()
+                        except Exception:
+                            pass
+                    def _mute():
+                        try:
+                            if aid:
+                                mf2 = self._get_seen_file().parent / 'announcement_muted.json'
+                                lst2 = []
+                                try:
+                                    if mf2.exists():
+                                        lst2 = json.loads(mf2.read_text(encoding='utf-8')) or []
+                                except Exception:
+                                    lst2 = []
+                                if aid not in lst2:
+                                    lst2.append(aid)
+                                    mf2.write_text(json.dumps(lst2, ensure_ascii=False, indent=2), encoding='utf-8')
+                                self._log('info', 'announcement: muted id=%s', aid[:8])
+                        except Exception:
+                            pass
+                        try:
+                            top.destroy()
+                        except Exception:
+                            pass
+                    a = tk.Button(btns, text='知道了', command=_ack)
+                    a.pack(side=tk.RIGHT, padx=(6, 0))
+                    m = tk.Button(btns, text='不再弹出', command=_mute)
+                    m.pack(side=tk.RIGHT)
+                    try:
+                        top.update_idletasks()
+                        rw = self.app.root.winfo_width()
+                        rh = self.app.root.winfo_height()
+                        rx = self.app.root.winfo_rootx()
+                        ry = self.app.root.winfo_rooty()
+                        tw = max(560, top.winfo_reqwidth())
+                        th = max(380, top.winfo_reqheight())
+                        cx = rx + (rw - tw) // 2
+                        cy = ry + (rh - th) // 2
+                        top.geometry(f"{tw}x{th}+{max(0,cx)}+{max(0,cy)}")
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            try:
+                self.app.root.after_idle(_show_popup)
+            except Exception:
+                pass
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            pass
+
+    def show_cached_popup(self):
+        try:
+            data = self._last_data
+        except Exception:
+            data = None
+        if not data:
+            try:
+                cache = self._get_cache_file()
+                if cache.exists():
+                    txt = cache.read_text(encoding="utf-8", errors="ignore").strip()
+                    if txt:
+                        data = {"title": "公告", "content": txt}
+            except Exception:
+                pass
+        if not data:
+            try:
+                from tkinter import messagebox
+                messagebox.showinfo("公告", "暂无公告")
+            except Exception:
+                pass
+            return
+        title = data.get("title") or "公告"
+        content = data.get("content") or ""
+        def _show():
+            try:
+                import tkinter as tk
+                top = tk.Toplevel(self.app.root)
+                top.title(title)
+                top.transient(self.app.root)
+                frm = tk.Frame(top)
+                frm.pack(fill=tk.BOTH, expand=True, padx=14, pady=12)
+                txtw = tk.Text(frm, wrap='word', height=16)
+                txtw.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                sb = tk.Scrollbar(frm, command=txtw.yview)
+                sb.pack(side=tk.RIGHT, fill=tk.Y)
+                txtw.configure(yscrollcommand=sb.set)
+                try:
+                    txtw.insert('1.0', content)
+                    txtw.configure(state='disabled')
+                except Exception:
+                    pass
+                try:
+                    top.update_idletasks()
+                    rw = self.app.root.winfo_width()
+                    rh = self.app.root.winfo_height()
+                    rx = self.app.root.winfo_rootx()
+                    ry = self.app.root.winfo_rooty()
+                    tw = max(560, top.winfo_reqwidth())
+                    th = max(380, top.winfo_reqheight())
+                    cx = rx + (rw - tw) // 2
+                    cy = ry + (rh - th) // 2
+                    top.geometry(f"{tw}x{th}+{max(0,cx)}+{max(0,cy)}")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        try:
+            self.app.root.after(0, _show)
         except Exception:
             pass

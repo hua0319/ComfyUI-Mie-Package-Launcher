@@ -174,17 +174,20 @@ class ProcessManager:
             def _open_when_ready():
                 try:
                     import time
-                    for _ in range(40):
+                    deadline = time.time() + 120.0
+                    while time.time() < deadline:
+                        ready = False
                         try:
-                            if self._is_http_reachable():
-                                break
+                            ready = self._is_http_reachable()
                         except Exception:
-                            pass
+                            ready = False
+                        if ready:
+                            try:
+                                self.app.ui_post(self.app.open_comfyui_web)
+                            except Exception:
+                                pass
+                            return
                         time.sleep(0.25)
-                    try:
-                        self.app.root.after(0, self.app.open_comfyui_web)
-                    except Exception:
-                        pass
                 except Exception:
                     pass
             try:
@@ -219,9 +222,15 @@ class ProcessManager:
                 killed = run_stop(self.app, self)
                 try:
                     if killed:
-                        self.app.root.after(0, self.on_process_ended)
+                        try:
+                            self.app.root.after(0, self.on_process_ended)
+                        except Exception:
+                            pass
                     else:
-                        self.app.root.after(0, self._refresh_running_status)
+                        try:
+                            self.app.root.after(0, self._refresh_running_status)
+                        except Exception:
+                            pass
                     
                 except Exception:
                     pass
@@ -524,7 +533,10 @@ class ProcessManager:
                     except Exception:
                         pass
                 try:
-                    self.app.root.after(0, _ui)
+                    try:
+                        self.app.root.after(0, _ui)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
             except Exception:

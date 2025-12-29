@@ -192,6 +192,15 @@ def build_about_launcher(app, parent):
 
     def _open_announcement(_=None):
         try:
+            if getattr(app, 'services', None) and getattr(app.services, 'announcement', None):
+                try:
+                    app.services.announcement.show_cached_popup()
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+        try:
             from pathlib import Path
             p = Path.cwd() / 'launcher' / 'announcement_cache.txt'
             txt = ''

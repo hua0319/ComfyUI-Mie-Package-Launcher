@@ -35,9 +35,23 @@ class VersionService(IVersionService):
             return False
         return bool(re.match(r"^\d+\.\d+\.\d+(?:[+][\w.-]+)?$", t))
 
+    def _run_git(self, cmd: list, **kwargs):
+        # 包装 run_hidden 以处理 git ownership 问题
+        cwd = kwargs.get('cwd')
+        r = run_hidden(cmd, **kwargs)
+        if r.returncode != 0 and "dubious ownership" in (r.stderr or ""):
+            try:
+                target_cwd = cwd or self._repo_root()
+                if getattr(self.app, 'services', None) and getattr(self.app.services, 'git', None):
+                    self.app.services.git.fix_unsafe_repo(target_cwd)
+                    return run_hidden(cmd, **kwargs)
+            except Exception:
+                pass
+        return r
+
     def _list_tags(self) -> list:
         try:
-            r = run_hidden(['git', 'tag', '--list'], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
+            r = self._run_git(['git', 'tag', '--list'], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
             if r and r.returncode == 0:
                 return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
         except Exception:
@@ -46,7 +60,7 @@ class VersionService(IVersionService):
 
     def _tag_commit(self, tag: str) -> Optional[str]:
         try:
-            r = run_hidden(['git', 'rev-list', '-n', '1', tag], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
+            r = self._run_git(['git', 'rev-list', '-n', '1', tag], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
             if r and r.returncode == 0:
                 return (r.stdout.strip() or None)
         except Exception:
@@ -63,7 +77,7 @@ class VersionService(IVersionService):
 
     def _origin_repo(self) -> Tuple[Optional[str], Optional[str]]:
         try:
-            r = run_hidden(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
+            r = self._run_git(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
             if r and r.returncode == 0:
                 url = (r.stdout or '').strip()
                 if url.startswith('git@github.com:'):
@@ -139,12 +153,12 @@ class VersionService(IVersionService):
 
     def get_current_kernel_version(self) -> Dict[str, Any]:
         try:
-            r = run_hidden(['git', 'describe', '--tags', '--abbrev=0'], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
+            r = self._run_git(['git', 'describe', '--tags', '--abbrev=0'], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
             tag = r.stdout.strip() if r and r.returncode == 0 else None
         except Exception:
             tag = None
         try:
-            r2 = run_hidden(['git', 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
+            r2 = self._run_git(['git', 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True, timeout=10, cwd=self._repo_root())
             commit = r2.stdout.strip() if r2 and r2.returncode == 0 else None
         except Exception:
             commit = None
@@ -179,7 +193,7 @@ class VersionService(IVersionService):
 
     def _checkout_commit(self, commit: str) -> Dict[str, Any]:
         try:
-            r = run_hidden(['git', 'checkout', commit], capture_output=True, text=True, timeout=15, cwd=self._repo_root())
+            r = self._run_git(['git', 'checkout', commit], capture_output=True, text=True, timeout=15, cwd=self._repo_root())
             if r and r.returncode == 0:
                 return {"component": "core", "updated": True}
             return {"component": "core", "error": r.stderr if r else "checkout failed"}

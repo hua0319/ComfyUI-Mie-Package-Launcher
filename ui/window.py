@@ -1,4 +1,5 @@
 import os
+import time
 from tkinter import ttk
 from ui import assets_helper as ASSETS
 from ui import theme as THEME
@@ -10,9 +11,9 @@ def setup_window(app):
         # 增加默认高度以适应新增的路径配置区域
         # 尝试使用屏幕高度的 85% 或默认 1040，取较小值以防溢出
         screen_height = app.root.winfo_screenheight()
-        target_height = 1040
+        target_height = 1020
         if screen_height < 1150:
-            target_height = min(1040, screen_height - 60)
+            target_height = min(1020, screen_height - 60)
         
         app.root.geometry(f"1250x{target_height}")
         app.root.minsize(1100, 700)
@@ -41,6 +42,28 @@ def setup_window(app):
         
         THEME.configure_default_font(app.root, logger=getattr(app, 'logger', None))
         THEME.configure_styles(app.style, COLORS, logger=getattr(app, 'logger', None))
+        try:
+            def _on_cfg(_=None):
+                try:
+                    w = app.root.winfo_width()
+                    h = app.root.winfo_height()
+                except Exception:
+                    w = None; h = None
+                try:
+                    last = getattr(app, '_last_size', None)
+                    if last != (w, h):
+                        app._last_size = (w, h)
+                        app._last_resize_ts = time.perf_counter()
+                        app._is_resizing = True
+                        tid = getattr(app, '_resizing_reset_timer', None)
+                        if tid:
+                            app.root.after_cancel(tid)
+                        app._resizing_reset_timer = app.root.after(120, lambda: setattr(app, '_is_resizing', False))
+                except Exception:
+                    pass
+            app.root.bind("<Configure>", _on_cfg)
+        except Exception:
+            pass
     except Exception:
         try:
             app.logger.exception("setup_window 阶段发生异常，继续使用默认外观")

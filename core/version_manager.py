@@ -378,7 +378,7 @@ class VersionManager:
                 except Exception:
                     pass
 
-            return run_hidden(
+            r = run_hidden(
                 [git_cmd] + args,
                 cwd=self.comfyui_path,
                 capture_output=capture_output,
@@ -386,6 +386,23 @@ class VersionManager:
                 encoding='utf-8',
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
+            
+            if r and r.returncode != 0 and "dubious ownership" in (getattr(r, 'stderr', '') or ""):
+                try:
+                    svc = getattr(self.parent, 'services', None)
+                    if svc and getattr(svc, 'git', None):
+                        svc.git.fix_unsafe_repo(str(self.comfyui_path))
+                        return run_hidden(
+                            [git_cmd] + args,
+                            cwd=self.comfyui_path,
+                            capture_output=capture_output,
+                            text=True,
+                            encoding='utf-8',
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                        )
+                except Exception:
+                    pass
+            return r
         except Exception as e:
             print(f"Git命令执行失败: {e}")
             try:

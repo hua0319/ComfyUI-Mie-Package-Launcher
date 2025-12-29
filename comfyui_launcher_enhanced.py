@@ -46,6 +46,11 @@ class ComfyUILauncherEnhanced:
             return
         self._initialized = True
         self._initializing = True
+        try:
+            import time as _t
+            self._startup_t0 = _t.perf_counter()
+        except Exception:
+            self._startup_t0 = None
         self.root = tk.Tk()
         # 缓存 Windows wmic 可用性，避免重复尝试
         try:
@@ -95,7 +100,15 @@ class ComfyUILauncherEnhanced:
         except Exception:
             config_file = Path("launcher/config.json")
         self.config_manager = ConfigManager(config_file, self.logger)
-        self.config = self.config_manager.load_config()
+        try:
+            self.config = self.config_manager.load_config()
+        finally:
+            try:
+                import time as _t
+                if self._startup_t0 is not None and getattr(self, 'logger', None):
+                    self.logger.info("startup: config loaded in %.1f ms", (_t.perf_counter() - self._startup_t0) * 1000.0)
+            except Exception:
+                pass
         # 根据配置或文件开关切换调试模式与日志级别（优先使用 launcher/is_debug 文件）
         try:
             dbg_cfg = False
@@ -136,6 +149,7 @@ class ComfyUILauncherEnhanced:
             except Exception:
                 return False
 
+        self._need_comfy_path_selection = False
         # 当前配置中的根与子目录名
         raw_root = self.config.get("paths", {}).get("comfyui_root")
         comfy_path = (Path(raw_root or ".").resolve() / Path("ComfyUI")).resolve()
@@ -157,31 +171,18 @@ class ComfyUILauncherEnhanced:
                 if is_valid_comfy_path(alt):
                     comfy_path = alt
                 else:
-                    # 弹窗引导用户选择 ComfyUI 根目录
-                    messagebox.showwarning(
-                        "未找到 ComfyUI",
-                        "未检测到有效的 ComfyUI 根目录。请手动选择安装目录。"
-                    )
-                    selected = filedialog.askdirectory(title="请选择 ComfyUI 根目录")
-                    if selected:
-                        cand = Path(selected).resolve()
-                        if is_valid_comfy_path(cand):
-                            comfy_path = cand
-                        else:
-                            messagebox.showerror("错误", "所选目录似乎不是 ComfyUI 根目录（缺少 main.py 或 .git）")
-                    # 如果仍然无效，继续使用选择的目录以允许后续界面与服务初始化
-                    if not is_valid_comfy_path(comfy_path):
-                        try:
-                            self.logger.warning("未检测到有效 ComfyUI 根目录，将继续使用所选路径: %s", str(comfy_path))
-                        except Exception:
-                            pass
-                    pass
+                    self._need_comfy_path_selection = True
+                    try:
+                        self.logger.warning("未检测到有效 ComfyUI 根目录，稍后将提示选择目录")
+                    except Exception:
+                        pass
 
         # 写回配置为分离的 root + path（路径名）
         self.config.setdefault("paths", {})
         self.config["paths"]["comfyui_root"] = str(comfy_path.parent)
         try:
-            self.config_manager.save_config(self.config)
+            import threading as _th
+            _th.Thread(target=lambda: self.config_manager.save_config(self.config), daemon=True).start()
         except Exception:
             pass
 
@@ -191,7 +192,8 @@ class ComfyUILauncherEnhanced:
         # 将解析后的绝对路径写回配置，后续运行更稳健
         try:
             self.config["paths"]["python_path"] = self.python_exec
-            self.config_manager.save_config(self.config)
+            import threading as _th
+            _th.Thread(target=lambda: self.config_manager.save_config(self.config), daemon=True).start()
         except Exception:
             pass
 
@@ -221,15 +223,27 @@ class ComfyUILauncherEnhanced:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         try:
             if getattr(self, 'services', None):
-                delay_ms = 1000
                 try:
-                    src = (self.config.get('announcement', {}) or {}).get('source_url')
-                    fb = len(((self.config.get('announcement', {}) or {}).get('fallback_urls') or []))
+                    self.root.after_idle(lambda: self.services.startup.start_all())
+                    try:
+                        threading.Thread(target=self.services.startup.start_all, daemon=True).start()
+                    except Exception:
+                        pass
                     if getattr(self, 'logger', None):
-                        self.logger.info('announcement: scheduled after UI build delay=%sms source=%s fallbacks=%d', delay_ms, src, fb)
+                        self.logger.info('startup tasks: scheduled on idle')
                 except Exception:
                     pass
-                self.root.after(delay_ms, lambda: self.services.announcement.show_if_available())
+        except Exception:
+            pass
+        try:
+            if getattr(self, '_need_comfy_path_selection', False):
+                self.root.after(2500, self._prompt_select_comfy_path)
+        except Exception:
+            pass
+        try:
+            import time as _t
+            if self._startup_t0 is not None and getattr(self, 'logger', None):
+                self.logger.info("startup: ui ready in %.1f ms", (_t.perf_counter() - self._startup_t0) * 1000.0)
         except Exception:
             pass
 
@@ -581,8 +595,6 @@ class ComfyUILauncherEnhanced:
         except Exception:
             _path = str(Path.cwd())
         QUICK.build_quick_links_panel(self, quick_card.get_body(), path=_path, rounded_button_cls=RoundedButton)
-        
-        self.root.after(0, lambda: self.get_version_info())
 
     
 
@@ -711,6 +723,60 @@ class ComfyUILauncherEnhanced:
         from core.version_service import refresh_version_info
         refresh_version_info(self, scope)
 
+    def _prompt_select_comfy_path(self):
+        try:
+            if not getattr(self, '_need_comfy_path_selection', False):
+                return
+        except Exception:
+            return
+        try:
+            messagebox.showwarning("未找到 ComfyUI", "未检测到有效的 ComfyUI 根目录。请手动选择安装目录。")
+        except Exception:
+            pass
+        try:
+            selected = filedialog.askdirectory(title="请选择 ComfyUI 根目录")
+        except Exception:
+            selected = ""
+        if selected:
+            try:
+                cand = Path(selected).resolve()
+            except Exception:
+                cand = Path(selected)
+            valid = False
+            try:
+                valid = PATHS.validate_comfy_root(cand)
+            except Exception:
+                valid = False
+            if not valid:
+                try:
+                    messagebox.showerror("错误", "所选目录似乎不是 ComfyUI 根目录（缺少 main.py 或 .git）")
+                except Exception:
+                    pass
+            try:
+                self.config.setdefault("paths", {})
+                self.config["paths"]["comfyui_root"] = str(cand.parent)
+                self.config_manager.save_config(self.config)
+            except Exception:
+                pass
+            try:
+                py_exec = PATHS.resolve_python_exec(cand, self.config["paths"].get("python_path", "python_embeded/python.exe"))
+                self.python_exec = str(py_exec)
+                self.config["paths"]["python_path"] = self.python_exec
+                self.config_manager.save_config(self.config)
+            except Exception:
+                pass
+            try:
+                self.version_manager = VersionManager(self, str(cand), self.config["paths"]["python_path"])
+            except Exception:
+                pass
+            try:
+                self.get_version_info()
+            except Exception:
+                pass
+        try:
+            self._need_comfy_path_selection = False
+        except Exception:
+            pass
     def perform_batch_update(self):
         if getattr(self, 'batch_updating', False):
             return
@@ -828,6 +894,23 @@ class ComfyUILauncherEnhanced:
 
     def _apply_manager_git_exe(self, git_path: str):
         self.services.git.apply_to_manager(git_path)
+    def ui_post(self, fn):
+        try:
+            import time as _t
+            gate = False
+            try:
+                if getattr(self, '_is_resizing', False):
+                    ts = getattr(self, '_last_resize_ts', None)
+                    if ts is None or (_t.perf_counter() - ts) < 0.18:
+                        gate = True
+            except Exception:
+                gate = False
+            if gate:
+                self.root.after(120, lambda: self.ui_post(fn))
+                return
+            self.root.after_idle(fn)
+        except Exception:
+            pass
 
     # ---------- 运行 ----------
     def run(self):
@@ -839,11 +922,6 @@ class ComfyUILauncherEnhanced:
                 pass
             return
         # 正常路径：进入消息循环（版本信息在界面构建后加载）
-        try:
-            if hasattr(self, 'comfyui_version'):
-                self.get_version_info()
-        except Exception:
-            pass
         self.root.mainloop()
 
     def on_hf_mirror_selected(self, _=None):
